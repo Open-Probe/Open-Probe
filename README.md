@@ -181,13 +181,13 @@ from opendeepsearch import OpenDeepSearchTool
 import os
 
 # Set environment variables for API keys
-os.environ["SERPER_API_KEY"] = "your-serper-api-key-here"  # If using Serper
+os.environ["SERPER_API_KEY"] = "your-serper-api-key"  # If using Serper
 # Or for SearXNG
 # os.environ["SEARXNG_INSTANCE_URL"] = "https://your-searxng-instance.com"
 # os.environ["SEARXNG_API_KEY"] = "your-api-key-here"  # Optional
 
-os.environ["OPENROUTER_API_KEY"] = "your-openrouter-api-key-here"
-os.environ["JINA_API_KEY"] = "your-jina-api-key-here"
+os.environ["OPENROUTER_API_KEY"] = "your-openrouter-api-key"
+os.environ["JINA_API_KEY"] = "your-jina-api-key"
 
 # Using Serper (default)
 search_agent = OpenDeepSearchTool(
@@ -254,13 +254,13 @@ from smolagents import CodeAgent, LiteLLMModel
 import os
 
 # Set environment variables for API keys
-os.environ["SERPER_API_KEY"] = "your-serper-api-key-here"  # If using Serper
+os.environ["SERPER_API_KEY"] = "your-serper-api-key"  # If using Serper
 # Or for SearXNG
 # os.environ["SEARXNG_INSTANCE_URL"] = "https://your-searxng-instance.com"
 # os.environ["SEARXNG_API_KEY"] = "your-api-key-here"  # Optional
 
-os.environ["OPENROUTER_API_KEY"] = "your-openrouter-api-key-here"
-os.environ["JINA_API_KEY"] = "your-jina-api-key-here"
+os.environ["OPENROUTER_API_KEY"] = "your-openrouter-api-key"
+os.environ["JINA_API_KEY"] = "your-jina-api-key"
 
 # Using Serper (default)
 search_agent = OpenDeepSearchTool(
@@ -299,8 +299,8 @@ from smolagents import LiteLLMModel, ToolCallingAgent, Tool
 import os
 
 # Set environment variables for API keys
-os.environ["SERPER_API_KEY"] = "your-serper-api-key-here"
-os.environ["JINA_API_KEY"] = "your-jina-api-key-here"
+os.environ["SERPER_API_KEY"] = "your-serper-api-key"
+os.environ["JINA_API_KEY"] = "your-jina-api-key"
 os.environ["WOLFRAM_ALPHA_APP_ID"] = "your-wolfram-alpha-app-id-here"
 os.environ["FIREWORKS_API_KEY"] = "your-fireworks-api-key-here"
 
@@ -326,6 +326,41 @@ result = react_agent.run(query)
 
 print(result)
 ```
+
+### LangGraph Integration 🔄
+
+OpenDeepSearch now supports LangChain's LangGraph agentic framework as an alternative to SmolAgents. This provides more flexible agent architectures and better integration with the LangChain ecosystem.
+
+```python
+from opendeepsearch.langgraph_agent import CodeAgent
+from opendeepsearch.langgraph_tools import OpenDeepSearchLangTool
+from opendeepsearch.langgraph_gradio_ui import LangGraphGradioUI
+
+# Create a search tool
+search_tool = OpenDeepSearchLangTool(
+    model_name="openrouter/google/gemini-2.0-flash-001",
+    reranker="infinity", 
+    search_provider="serper"
+)
+
+# Create the agent
+agent = CodeAgent(
+    tools=[search_tool],
+    model_id="openrouter/google/gemini-2.0-flash-001",
+    temperature=0.2
+)
+
+# Launch the UI
+LangGraphGradioUI(agent, name="OpenDeepSearch LangGraph Demo").launch()
+```
+
+Run the LangGraph demo:
+
+```bash
+python langgraph_gradio_demo.py
+```
+
+See the [migration guide](docs/migration_guide.md) for detailed instructions on migrating from SmolAgents to LangGraph.
 
 ## Search Modes 🔄
 
@@ -379,3 +414,63 @@ If you use `OpenDeepSearch` in your works, please cite it using the following Bi
 ## Contact 📩
 
 For questions or collaborations, open an issue or reach out to the maintainers.
+
+# OpenDeepSearch LangGraph Implementation
+
+This repository contains a LangGraph implementation of OpenDeepSearch with both Gradio and Streamlit UIs.
+
+## Setup
+
+1. Clone the repository
+2. Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+3. Create a `.env` file with your API keys:
+
+```
+OPENROUTER_API_KEY=your_openrouter_api_key
+SERPER_API_KEY=your_serper_api_key
+# Optional configuration
+OPENROUTER_MODEL_ID=google/gemini-2.0-flash-001
+SEARXNG_INSTANCE_URL=your_searxng_instance_url
+SEARXNG_API_KEY=your_searxng_api_key
+```
+
+## Running the Gradio Interface
+
+```bash
+python lg_gradio_demo.py
+```
+
+Additional command-line options:
+```
+--model-name: Model name for search
+--orchestrator-model: Model name for orchestration
+--reranker: Reranker to use (jina or infinity)
+--search-provider: Search provider to use (serper or searxng)
+--searxng-instance: SearXNG instance URL (required if search-provider is searxng)
+--searxng-api-key: SearXNG API key (optional)
+--serper-api-key: Serper API key (optional)
+--openai-base-url: OpenAI API base URL (optional)
+--server-port: Port to run the Gradio server on
+--openrouter-api-key: OpenRouter API key (optional)
+```
+
+## Running the Streamlit Interface
+
+```bash
+streamlit run st_app.py
+```
+
+The Streamlit app accepts the same command-line arguments as the Gradio version.
+
+## Features
+
+Both interfaces provide:
+- A chat-based interface for querying the OpenDeepSearch tool
+- Integration with LangGraph agent for orchestrating searches
+- Support for different search providers (Serper, SearXNG)
+- Ability to use different models via OpenRouter

@@ -38,6 +38,9 @@ parser.add_argument('--server-port',
 
 args = parser.parse_args()
 
+os.environ["NO_PROXY"] = os.environ["no_proxy"] = "localhost,127.0.0.1,::1"
+
+
 # Validate arguments
 if args.search_provider == 'searxng' and not (args.searxng_instance or os.getenv('SEARXNG_INSTANCE_URL')):
     parser.error("--searxng-instance is required when using --search-provider=searxng")
@@ -62,6 +65,7 @@ model = LiteLLMModel(
 
 # Initialize the agent with the search tool
 agent = CodeAgent(tools=[search_tool], model=model)
+
 
 # Add a name when initializing GradioUI
 GradioUI(agent).launch(server_name="127.0.0.1", server_port=args.server_port, share=False)
