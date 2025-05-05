@@ -27,8 +27,18 @@ Set API keys to environment variable
     export WEB_SEARCH_API_KEY=your_api_key
     ```
 
-### Deep Search
+- Jina:
+    ```bash 
+    export JINA_API_KEY=your_api_key
+    ```
+
+### Installation
 ```bash
-cd /content/openprobe_dev
+cd openprobe_dev
+pip install -e .
+```
+
+### Run
+```bash
 python test_deepsearch.py
 ```

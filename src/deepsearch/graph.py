@@ -1,13 +1,15 @@
 import os
 
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
-from langgraph.graph import START, END, StateGraph
+from langgraph.graph import END, START, StateGraph
 
-from state import AgentState
-from prompt import REACT_SYSTEM_PROMPT, SUMMARY_SYSTEM_PROMPT
-from utils import extract_search_query, extract_answer, extract_content
-from web_search import web_search
+from .prompt import REACT_SYSTEM_PROMPT, SUMMARY_SYSTEM_PROMPT
+from .state import AgentState
+from .utils import extract_answer, extract_content, extract_search_query
+from .web_search.context_builder import build_context
+from .web_search.serp_search import create_search_api
+from .web_search.source_processor import SourceProcessor
 
 
 def should_continue(state: AgentState):
@@ -57,7 +59,7 @@ def reason(state: AgentState):
     return {"messages": [ai_message], "answer": state["answer"], "search_query": state["search_query"]}
 
 
-def search(state: AgentState):
+async def search(state: AgentState):
     """Perform the actual web search and summarize the search result.
 
     Args:
@@ -66,12 +68,29 @@ def search(state: AgentState):
     Returns:
         dict: A dictionary containing the latest message and updated state.
     """
-    search_result = web_search(state["search_query"], WEB_SEARCH_API_KEY)
+    query = state["search_query"]
+    serp_search_client = create_search_api(
+        search_provider="serper",
+        serper_api_key=WEB_SEARCH_API_KEY
+    )
+
+    sources = serp_search_client.get_sources(query)
+    source_processor = SourceProcessor(reranker='jina')
+
+    max_sources = 2
+    processed_sources = await source_processor.process_sources(
+        sources,
+        max_sources,
+        query,
+        pro_mode=True
+    )
+
+    context = build_context(processed_sources)
 
     # Summary Messages: System + Human(Search result)
     summary_messages = [
         SystemMessage(SUMMARY_SYSTEM_PROMPT),
-        HumanMessage(search_result)
+        HumanMessage(context)
     ]
     summary_ai_message = MODEL.invoke(summary_messages)
     summary_ai_message.content = summary_ai_message.content.strip()
