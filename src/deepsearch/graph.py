@@ -1,5 +1,5 @@
 import os
-
+from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import END, START, StateGraph
@@ -11,6 +11,22 @@ from .web_search.context_builder import build_context
 from .web_search.serp_search import create_search_api
 from .web_search.source_processor import SourceProcessor
 
+load_dotenv()
+
+def get_required_env_var(var_name: str) -> str:
+    value = os.getenv(var_name)
+    if not value:
+        raise ValueError(f"{var_name} environment variable is not set. Please set it in your .env file.")
+    return value
+
+# Get API keys from environment variables
+SERPER_API_KEY = os.getenv("SERPER_API_KEY") or os.getenv("WEB_SEARCH_API_KEY")  # For backward compatibility
+if not SERPER_API_KEY:
+    raise ValueError("SERPER_API_KEY environment variable is not set. Please set it in your .env file.")
+
+GOOGLE_API_KEY = get_required_env_var("GOOGLE_API_KEY")
+
+MODEL = ChatGoogleGenerativeAI(model="gemini-2.0-flash-001", google_api_key=GOOGLE_API_KEY)
 
 def should_continue(state: AgentState):
     """Determine the next node based on the model's output.
@@ -71,7 +87,7 @@ async def search(state: AgentState):
     query = state["search_query"]
     serp_search_client = create_search_api(
         search_provider="serper",
-        serper_api_key=WEB_SEARCH_API_KEY
+        serper_api_key=SERPER_API_KEY
     )
 
     sources = serp_search_client.get_sources(query)
@@ -101,9 +117,6 @@ async def search(state: AgentState):
         f"<observation>{summary_ai_message.content}</observation>")
     return {"messages": [ai_message], "search_summary": state["search_summary"], "current_iter": state["current_iter"] + 1}
 
-
-WEB_SEARCH_API_KEY = os.environ["WEB_SEARCH_API_KEY"]
-MODEL = ChatGoogleGenerativeAI(model="gemini-2.0-flash-001")
 
 builder = StateGraph(AgentState)
 builder.add_node("reason", reason)
