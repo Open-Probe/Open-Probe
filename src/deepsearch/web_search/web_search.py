@@ -1,16 +1,24 @@
+import os
 import requests
+from dotenv import load_dotenv
 
+# Load environment variables from .env file
+load_dotenv()
 
 def web_search(query, api_key, provider="serper"):
     """Search for a given query on the web.
 
     Args:
         query: The search term to look up on the Web.
-        api_key: The API key for the web search API.
+        api_key: The API key for the web search API. If None, will be loaded from environment.
         provider: Web search API provider.
     Returns:
         str: Web search results (snippets).
     """
+    # If no API key provided, try to get from environment
+    if api_key is None:
+        api_key = os.getenv("WEB_SEARCH_API_KEY")
+
     if provider == "serpapi":
         params = {
             "q": query,
