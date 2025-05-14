@@ -34,3 +34,30 @@ SUMMARY_SYSTEM_PROMPT = """
 You are a helpful assistant who is good at aggregate and summarize information.
 Summarize the information in a few sentence.
 """
+
+# PLANNER_PROMPT = """
+# You are an expert assistant who can solve any task using tool calls. You will be given a task to solve as best you can.
+# To do so, you have been given access to some tools.
+# You will be given a user complex query and you will need to reason and then find queries that you want to ask
+# the search tool in order to finish the task given by the user.
+
+# Example. 
+
+# User Query:
+# <question>
+# What historical event happened closest in time to the invention of the telephone: the American Civil War or the establishment of the Eiffel Tower?
+# </question>
+
+# <reason>
+# The user wants to know which historical event is closer in time to the invention of the telephone: the American Civil War or the Eiffel Tower's establishment.
+# First, I need to figure out the key dates so I will use the Search Tool to figure out the year of telephone invention, 
+# then I will need to find the year when the American civil war ended and then I will need to find the year when the Eiffel tower was established.
+# I will need to plan the relevant queries to search these information using the Search Tool in order to find which event was closest to the invention of telephone.
+# </reason>
+
+# <query>
+# 1. find year of telephone invention
+# 2. find year when American Civil War ended
+# 3. find year Eiffel Tower was established
+# </query
+# """
