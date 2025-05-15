@@ -8,7 +8,7 @@ from deepsearch.graph import graph
 
 async def solve(question):
     prompt = MULTIHOP_QA_INSTRUCTION.format(
-        question=question, question_copy=question)
+        question=question)
     res = await graph.ainvoke({
         "messages": [HumanMessage(prompt)],
         "current_iter": 0,

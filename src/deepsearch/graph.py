@@ -46,6 +46,7 @@ def master(state: AgentState) -> Command[Literal["plan", "search", END]]:
     elif state["plan_query_index"] != -1:
         if "<search_query>" in response:
             response += "</search_query>"
+            ai_message.content = response
             query = extract_content(response, "search_query")
         elif "<plan_result>" in response:
             response += "</plan_result>"
