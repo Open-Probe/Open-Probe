@@ -10,18 +10,12 @@ def extract_plan_result(json_string):
     return query_list
 
 
-# def extract_search_query(input_str):
-#     match = re.search(r"web_search\[(.*?)\]", input_str.strip())
-#     if not match:
-#         raise ValueError("Cannot extract 'web_search'!")
-#     return match.group(1)
-
-
-# def extract_answer(input_str):
-#     match = re.search(r"<answer>(.*?)</answer>", input_str.strip())
-#     if not match:
-#         return None
-#     return match.group(1)
+def remove_xml_blocks(markdown_text):
+    # This pattern matches triple backtick blocks labeled as xml
+    pattern = r"```xml(.*?)```"
+    # re.DOTALL makes '.' match newlines as well
+    cleaned_text = re.sub(pattern, r"\1", markdown_text, flags=re.DOTALL)
+    return cleaned_text
 
 
 def extract_content(input_str, target_tag):

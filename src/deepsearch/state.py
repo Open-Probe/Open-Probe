@@ -11,6 +11,7 @@ class AgentState(TypedDict):
     max_iter: int
     plan_goal: str
     plan_result: str
+    plan_query_index: int
     search_query: str
     search_summary: str
     answer: str
