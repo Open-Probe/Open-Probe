@@ -18,7 +18,9 @@ You are a reasoning assistant with the ability to perform web searches to help y
 2.  **Search Tool:** To gather information, formulate a specific query and write `<search_query> your targeted query here </search_query>`. The system will return relevant information:
     `<search_result> ...search results... </search_result>`
 
-You can repeat the plan and search process multiple times if necessary. The maximum number of search attempts is limited to 5.
+3.  **Replanning Tool:** If you find that your current plan is not yielding useful results, you can request a replan by writing `<replan> your explanation of why the current plan is insufficient </replan>`. The system will reflect on the previous plan and create an improved one.
+
+You can repeat the plan, search, and replan processes multiple times if necessary. The maximum number of search attempts is limited to 5.
 
 Once you have all the information you need, continue your reasoning.
 
@@ -41,16 +43,35 @@ Alice David is the voice of Lara Croft in a video game developed by which compan
 
 <search_query>video game in which Alice David voiced Lara Croft</search_query>
 <search_result>After searching, I found that the voice of Lara Croft has been provided by several actresses over the years, but the most well-known ones include Keeley Hawes and Camilla Luddington. However, I couldn't find any information confirming Alice David as the voice of Lara Croft.</search_result>
-<search_query>the developer of Tomb Raider series</search_query>
-<search_result>The Tomb Raider series, which features Lara Croft, has been developed by several companies, with the primary developers being Core Design and Crystal Dynamics. The series is currently owned by Square Enix (formerly Eidos Interactive), which has published many of the games in the series.</search_query>
+
+<replan>The search didn't confirm Alice David as the voice of Lara Croft. I need to replan to find more accurate information.</replan>
+
+<reflection>
+The initial plan assumed Alice David was the voice of Lara Croft, but our search didn't confirm this. We should first verify if Alice David actually voiced Lara Croft, and if so, identify the specific Tomb Raider game and then its developer.
+</reflection>
+
+<plan_result>
+```json
+{
+  "1": "Verify if Alice David has voiced Lara Croft in any Tomb Raider game",
+  "2": "Search for any voice acting roles of Alice David in video games",
+  "3": "If confirmed, identify which Tomb Raider game featured Alice David",
+  "4": "Find the developer of that specific game"
+}
+```
+</plan_result>
+
+<search_query>Alice David voice actress video game roles</search_query>
+<search_result>After searching, I found that Alice David is a French actress known for her role in the French comedy series "Bref." However, there is no evidence that she voiced Lara Croft in any Tomb Raider game. The main voice actresses for Lara Croft have been Shelley Blond, Judith Gibbins, Jonell Elliott, Keeley Hawes, Camilla Luddington, and Abigail Stahlschmidt across various games.</search_result>
 
 I now know the final answer.
 
-<answer>Crystal Dynamics, which are part of the Square Enix group</answer>
+<answer>There is no evidence that Alice David voiced Lara Croft in any video game. The premise of the question appears to be incorrect, as Alice David is not listed as a voice actress for Lara Croft in the Tomb Raider series.</answer>
 
 Remember:
 - Use <plan> to plan further inquiries about the original question </plan>.
 - Use <search_query> to request a web search and end with </search_query>.
+- Use <replan> when you need to revise your approach based on search results </replan>.
 - When done searching, continue your reasoning.
 - Stop when the answer is found.
 - Important: DO format your answer in the format: <answer>your answer</answer>.
@@ -97,9 +118,13 @@ Summarize the information in a few sentence.
 PLANNING_INSTRUCTION = """
 You are a reasoning assistant. Your task is to generate a detailed query plan for answering the user's question by breaking it down into sub-queries.
 
-Question: {question}
+Plan: {question}
 
 Please analyze the question and break it down into multiple sub-queries that will help gather all the necessary information to answer it completely. 
+Always focus on making these sub queries and decompose them such that they can be search-able in internet and a proper answer can be found to answer the question.
+Always go by first principles when breaking down a question.
+
+Example of a *BAD* subquery would be: "Find the capital of France and find the population of the city of Rome"
 
 Output your query plan in JSON format as follows:
 
@@ -107,9 +132,46 @@ Output your query plan in JSON format as follows:
 {{
   "1": "sub_query_1",
   "2": "sub_query_2",
+  "3": "sub_query_3",
   ...
 }}
 ```
+"""
+
+REPLAN_INSTRUCTION = """
+You are a reasoning assistant. Your task is to reflect on your previous search plan and create an improved one.
+
+Original Question: {question}
+
+Previous Plan:
+{previous_plan}
+
+Search Results Received So Far:
+{search_summary}
+
+Please analyze what's missing or inadequate in the previous plan. Consider:
+1. What information gaps remain?
+2. Which queries didn't yield useful results?
+3. What alternative approaches could be more effective?
+
+First, provide your reflection on the previous plan's shortcomings:
+
+<reflection>
+Your analysis of what went wrong with the previous plan
+</reflection>
+
+Then, create a new improved query plan in JSON format:
+
+```json
+{{
+  "1": "sub_query_1",
+  "2": "sub_query_2",
+  "3": "sub_query_3",
+  ...
+}}
+```
+
+Make your new queries more specific, targeted, and comprehensive than the previous ones.
 """
 
 MULTIHOP_QA_INSTRUCTION = """

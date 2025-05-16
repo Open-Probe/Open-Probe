@@ -1,4 +1,4 @@
-from typing import Annotated, Sequence, TypedDict
+from typing import Annotated, Sequence, TypedDict, List
 from typing_extensions import Annotated
 
 from langchain_core.messages import AnyMessage
@@ -10,8 +10,11 @@ class AgentState(TypedDict):
     current_iter: int
     max_iter: int
     plan_goal: str
-    plan_result: str
+    plan_result: List[str]
     plan_query_index: int
     search_query: str
     search_summary: str
     answer: str
+    needs_replan: bool
+    previous_plan: List[str]
+    reflection: str
