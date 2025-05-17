@@ -14,7 +14,7 @@ pip install -r requirements.txt
 The DeepSearch system is designed to perform multi-step web searches with intelligent planning and replanning capabilities:
 
 - **Automated Planning**: Breaks down complex queries into multiple search steps
-- **Adaptive Replanning**: Analyzes search results and revises the search strategy when initial plans are insufficient
+- **Adaptive Replanning**: Analyzes search results and revises the search strategy when initial plans are insufficient (limited to 2 replans)
 - **Reflection**: Provides reasoning about why previous plans failed and how to improve them
 - **Web Search Integration**: Seamlessly integrates with search APIs to gather information
 
@@ -22,8 +22,13 @@ The DeepSearch system is designed to perform multi-step web searches with intell
 1. The system analyzes the user's question
 2. It creates a search plan with multiple sub-queries
 3. It executes searches based on the plan
-4. If results are insufficient, it can replan with improved queries
+4. If results are insufficient, it can replan with improved queries (up to 2 times)
 5. Finally, it synthesizes all information into a comprehensive answer
+
+#### System Limitations
+- Maximum of 5 search attempts per session
+- Maximum of 2 replanning attempts for any query
+- After the replan limit is reached, the system must answer with available information
 
 ## To-Dos
 

@@ -18,3 +18,4 @@ class AgentState(TypedDict):
     needs_replan: bool
     previous_plan: List[str]
     reflection: str
+    replan_count: int

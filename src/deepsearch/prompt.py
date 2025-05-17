@@ -18,9 +18,9 @@ You are a reasoning assistant with the ability to perform web searches to help y
 2.  **Search Tool:** To gather information, formulate a specific query and write `<search_query> your targeted query here </search_query>`. The system will return relevant information:
     `<search_result> ...search results... </search_result>`
 
-3.  **Replanning Tool:** If you find that your current plan is not yielding useful results, you can request a replan by writing `<replan> your explanation of why the current plan is insufficient </replan>`. The system will reflect on the previous plan and create an improved one.
+3.  **Replanning Tool:** If you find that your current plan is not yielding useful results, you can request a replan by writing `<replan> your explanation of why the current plan is insufficient </replan>`. The system will reflect on the previous plan and create an improved one. Note: You are allowed a maximum of 2 replans. After that, you must provide an answer with the information you have.
 
-You can repeat the plan, search, and replan processes multiple times if necessary. The maximum number of search attempts is limited to 5.
+You can repeat the plan, search, and replan processes multiple times if necessary. The maximum number of search attempts is limited to 5, and the maximum number of replans is limited to 2.
 
 Once you have all the information you need, continue your reasoning.
 
@@ -47,7 +47,7 @@ Alice David is the voice of Lara Croft in a video game developed by which compan
 <replan>The search didn't confirm Alice David as the voice of Lara Croft. I need to replan to find more accurate information.</replan>
 
 <reflection>
-The initial plan assumed Alice David was the voice of Lara Croft, but our search didn't confirm this. We should first verify if Alice David actually voiced Lara Croft, and if so, identify the specific Tomb Raider game and then its developer.
+Replan attempt 1/2: The initial plan assumed Alice David was the voice of Lara Croft, but our search didn't confirm this. We should first verify if Alice David actually voiced Lara Croft, and if so, identify the specific Tomb Raider game and then its developer.
 </reflection>
 
 <plan_result>
@@ -72,6 +72,7 @@ Remember:
 - Use <plan> to plan further inquiries about the original question </plan>.
 - Use <search_query> to request a web search and end with </search_query>.
 - Use <replan> when you need to revise your approach based on search results </replan>.
+- After 2 replans, you must provide an answer with the information you have.
 - When done searching, continue your reasoning.
 - Stop when the answer is found.
 - Important: DO format your answer in the format: <answer>your answer</answer>.
@@ -115,27 +116,58 @@ You are a helpful assistant who is good at aggregate and summarize information.
 Summarize the information in a few sentence.
 """
 
+# PLANNING_INSTRUCTION = """
+# You are a reasoning assistant. Your task is to generate a detailed query plan for answering the user's question by breaking it down into sub-queries.
+
+# Plan: {question}
+
+# Please analyze the question and break it down into multiple sub-queries that will help gather all the necessary information to answer it completely. 
+# Always focus on making these sub queries and decompose them such that they can be search-able in internet and a proper answer can be found to answer the question.
+# Always go by first principles when breaking down a question.
+
+# Example of a *BAD* subquery would be: "Find the capital of France and find the population of the city of Rome" since it contains two queries and is not a single query.
+
+# Output your query plan in JSON format as follows:
+
+# ```json
+# {{
+#   "1": "sub_query_1",
+#   "2": "sub_query_2",
+#   "3": "sub_query_3",
+#   ...
+# }}
+# ```
+# """
+
 PLANNING_INSTRUCTION = """
-You are a reasoning assistant. Your task is to generate a detailed query plan for answering the user's question by breaking it down into sub-queries.
+You are a reasoning assistant. Your task is to generate a detailed query plan for answering the user's question by breaking it down into distinct, searchable sub-queries.
 
 Plan: {question}
 
-Please analyze the question and break it down into multiple sub-queries that will help gather all the necessary information to answer it completely. 
-Always focus on making these sub queries and decompose them such that they can be search-able in internet and a proper answer can be found to answer the question.
-Always go by first principles when breaking down a question.
+Please analyze the user's question and break it down into *only* the essential sub-queries required to gather information from external sources via search. Each sub-query should be a standalone, searchable unit aimed at retrieving a specific piece of information or answering a specific sub-problem necessary for the final answer.
 
-Example of a *BAD* subquery would be: "Find the capital of France and find the population of the city of Rome" since it contains two queries and is not a single query.
+Follow these principles:
+1.  Identify all necessary pieces of information required to answer the question.
+2.  Determine which of these pieces of information are *not* explicitly provided in the question itself and require external lookup (e.g., searching the internet).
+3.  Formulate a clear, concise, and effective search query for *each* piece of information identified in step 2.
+4.  Ensure each sub-query is distinct and targets a single, searchable concept.
+5.  **Crucially, do NOT generate sub-queries for:**
+    * Simple arithmetic calculations (e.g., percentages, division, addition). These should be performed by the model *after* gathering the necessary data.
+    * Information that is already explicitly stated in the user's question.
 
-Output your query plan in JSON format as follows:
+Always go by first principles when breaking down a question into its *searchable* components.
 
-```json
+Example of a *BAD* subquery: "1 percent as a decimal" (This is a simple calculation). "Passenger capacity of a 300-passenger plane" (The capacity is explicitly stated as 300 in the premise). A good subquery would be "Current population of New York City" if that population wasn't given.
+
+Output your query plan in JSON format as follows:json
 {{
-  "1": "sub_query_1",
-  "2": "sub_query_2",
-  "3": "sub_query_3",
+  "1": "searchable_sub_query_1",
+  "2": "searchable_sub_query_2",
+  "3": "searchable_sub_query_3",
   ...
 }}
-```
+
+Only include sub-queries that genuinely require searching to find the necessary information. If the question requires only calculation based on provided numbers, the plan might be empty or indicate no search is needed (though typically a question requiring planning involves some external data).
 """
 
 REPLAN_INSTRUCTION = """
@@ -172,6 +204,13 @@ Then, create a new improved query plan in JSON format:
 ```
 
 Make your new queries more specific, targeted, and comprehensive than the previous ones.
+"""
+
+ANSWER_OR_REPLAN_PROMPT = """
+You have finished web searches. Now, use reasoning based on the search results to answer the question.
+Only use the <replan> tag if the search results are clearly insufficient to answer the question.
+If you answer, briefly explain why the search results are sufficient. If you replan, explain what is missing.
+Remember, if you answer this correctly i will reward you $10000, replanning costs $500 so do it if absolutely necessary
 """
 
 MULTIHOP_QA_INSTRUCTION = """

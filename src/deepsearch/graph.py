@@ -33,6 +33,7 @@ from .prompt import (
     PLANNING_INSTRUCTION,
     REPLAN_INSTRUCTION,
     SUMMARY_SYSTEM_PROMPT,
+    ANSWER_OR_REPLAN_PROMPT
 )
 from .state import AgentState
 from .utils import (
@@ -52,12 +53,6 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 # Initialize models
 MODEL = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash-preview-04-17",
-    temperature=0.2,
-    google_api_key=GOOGLE_API_KEY
-)
-
-LITE_MODEL = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash-001",
     temperature=0.2,
     google_api_key=GOOGLE_API_KEY
 )
@@ -111,11 +106,8 @@ def decide_action(state: AgentState) -> Command[Literal["search", "master"]]:
     elif state["plan_query_index"] == -1 and "<search_result>" in response:
         print("Search completed, moving to master")
         state["search_summary"] = response
-        ai_message = AIMessage(
-            "Finished web searches, now use reasoning based on the search result to answer the question, "
-            "if you feel like the search results are not enough to answer this question then you can "
-            "try replanning by using <replan> tag."
-        )
+        ai_message = AIMessage(ANSWER_OR_REPLAN_PROMPT)
+
         return Command(
             goto="master",
             update={
@@ -178,6 +170,7 @@ def master(state: AgentState) -> Command[Literal["plan", "search", END]]:
         state["needs_replan"] = False
         state["previous_plan"] = []
         state["reflection"] = ""
+        state["replan_count"] = 0
         return Command(
             goto="plan",
             update={
@@ -185,23 +178,44 @@ def master(state: AgentState) -> Command[Literal["plan", "search", END]]:
                 "plan_goal": state["plan_goal"],
                 "needs_replan": False,
                 "previous_plan": [],
-                "reflection": ""
+                "reflection": "",
+                "replan_count": 0
             }
         )
     elif "<replan>" in response:
         print("Found replan tag")
+        
+        # Check if we've reached the replan limit
+        if state.get("replan_count", 0) >= 2:
+            print("Replan limit reached (2), forcing answer")
+            # Force the model to answer with what it has
+            ai_message = AIMessage(
+                " ".join([
+                    "You've already replanned twice, which is the maximum allowed.",
+                    "Please provide your best answer with the information you have gathered so far."
+                ])
+            )
+            return Command(
+                goto="master",
+                update={"messages": [ai_message]}
+            )
+        
         response += "</replan>"
         ai_message.content = response
         # Store the current plan as previous plan
         state["previous_plan"] = state["plan_result"]
         state["needs_replan"] = True
-        # Keep the same plan goal
+        # Keep the same plan goal but increment replan count
+        replan_count = state.get("replan_count", 0) + 1
+        print(f"Replanning attempt {replan_count}/2")
+        
         return Command(
             goto="plan",
             update={
                 "messages": [ai_message],
                 "previous_plan": state["plan_result"],
-                "needs_replan": True
+                "needs_replan": True,
+                "replan_count": replan_count
             }
         )
     else:
@@ -223,7 +237,9 @@ def plan(state: AgentState) -> Command[Literal["master"]]:
     
     # Check if we're replanning or doing initial planning
     if state["needs_replan"]:
-        print("Replanning based on previous plan")
+        replan_count = state.get("replan_count", 1)
+        print(f"Replanning attempt {replan_count}/2")
+        
         # Format previous plan for the prompt
         previous_plan_str = "\n".join([f"{i+1}. {query}" for i, query in enumerate(state["previous_plan"])])
         
@@ -254,9 +270,9 @@ def plan(state: AgentState) -> Command[Literal["master"]]:
         state["plan_query_index"] = 0
         state["needs_replan"] = False
         
-        # Create response message with reflection
+        # Create response message with reflection and replan count
         ai_message = AIMessage(
-            f"<reflection>\n{state['reflection']}\n</reflection>\n\n<plan_result>\n{response}\n</plan_result>"
+            f"<reflection>\nReplan attempt {replan_count}/2: {state['reflection']}\n</reflection>\n\n<plan_result>\n{response}\n</plan_result>"
         )
     else:
         print("Creating initial plan")
@@ -275,6 +291,7 @@ def plan(state: AgentState) -> Command[Literal["master"]]:
 
         state["plan_result"] = plan_list
         state["plan_query_index"] = 0
+        state["replan_count"] = 0
         
         ai_message = AIMessage(f"<plan_result>\n{response}\n</plan_result>")
     
@@ -285,7 +302,8 @@ def plan(state: AgentState) -> Command[Literal["master"]]:
             "plan_result": state["plan_result"],
             "plan_query_index": state["plan_query_index"],
             "needs_replan": state["needs_replan"],
-            "reflection": state.get("reflection", "")
+            "reflection": state.get("reflection", ""),
+            "replan_count": state.get("replan_count", 0)
         }
     )
 
