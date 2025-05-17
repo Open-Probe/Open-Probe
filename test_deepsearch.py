@@ -36,6 +36,8 @@ async def solve(question):
 
 # query = "Which magazine was started first Arthur's Magazine or First for Women?"
 # query = "who was the one to invent rubik's cube"
-query = "How much tin (kg) with 100 kg copper can lower the mixture’s melting point to 800 celcius?"
+# query = "How much tin (kg) with 100 kg copper can lower the mixture’s melting point to 800 celcius?"
 # query = "How many meters taller is the Burj Khalifa compared to taj mahal and what would be the square root of that number times the sum of both the structures"
+# query = "How many 300 passenger planes are needed to carry 1% of New York’s population?"
+query = "How many years earlier would Punxsutawney Phil have to be canonically alive to have made a Groundhog Day prediction in the same state as the US capitol"
 asyncio.run(solve(query))

@@ -1,6 +1,27 @@
 import os
 from typing import Literal
 
+"""
+DeepSearch Graph Implementation
+
+This module defines the LangGraph workflow for DeepSearch, with capabilities for:
+- Multi-step planning for complex queries
+- Web search based on generated plans
+- Adaptive replanning when initial searches are insufficient
+- Reflection on previous plans to improve search strategy
+
+The graph workflow includes these main nodes:
+- master: Central decision-making node for routing
+- plan: Generates search plans from queries
+- search: Executes web searches and processes results
+
+The replanning feature allows the model to:
+1. Analyze why previous searches were insufficient
+2. Reflect on what information is missing
+3. Generate improved search queries
+4. Continue the search process with better strategy
+"""
+
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI

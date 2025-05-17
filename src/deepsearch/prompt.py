@@ -124,7 +124,7 @@ Please analyze the question and break it down into multiple sub-queries that wil
 Always focus on making these sub queries and decompose them such that they can be search-able in internet and a proper answer can be found to answer the question.
 Always go by first principles when breaking down a question.
 
-Example of a *BAD* subquery would be: "Find the capital of France and find the population of the city of Rome"
+Example of a *BAD* subquery would be: "Find the capital of France and find the population of the city of Rome" since it contains two queries and is not a single query.
 
 Output your query plan in JSON format as follows:
 

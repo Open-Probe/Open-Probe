@@ -8,6 +8,23 @@ Ensure you have Python installed, and then run:
 pip install -r requirements.txt  
 ```
 
+## Features
+
+### DeepSearch
+The DeepSearch system is designed to perform multi-step web searches with intelligent planning and replanning capabilities:
+
+- **Automated Planning**: Breaks down complex queries into multiple search steps
+- **Adaptive Replanning**: Analyzes search results and revises the search strategy when initial plans are insufficient
+- **Reflection**: Provides reasoning about why previous plans failed and how to improve them
+- **Web Search Integration**: Seamlessly integrates with search APIs to gather information
+
+#### How it Works
+1. The system analyzes the user's question
+2. It creates a search plan with multiple sub-queries
+3. It executes searches based on the plan
+4. If results are insufficient, it can replan with improved queries
+5. Finally, it synthesizes all information into a comprehensive answer
+
 ## To-Dos
 
 ### Deep Search
