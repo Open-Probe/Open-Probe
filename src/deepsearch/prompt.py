@@ -154,6 +154,7 @@ Follow these principles:
 5.  **Crucially, do NOT generate sub-queries for:**
     * Simple arithmetic calculations (e.g., percentages, division, addition). These should be performed by the model *after* gathering the necessary data.
     * Information that is already explicitly stated in the user's question.
+6. When you make a plan, don't assume things from your own knowledge,, make sure to verify them using internet search . you are given that toool for a reason, to validate any piece of searchable information. I repeat *DO NOT ASSUME ANYTHING FROM YOUR KNOWLEDGE, MAKE SURE TO VERIFY THEM USING THE INTERNET SEARCH*
 
 Always go by first principles when breaking down a question into its *searchable* components.
 

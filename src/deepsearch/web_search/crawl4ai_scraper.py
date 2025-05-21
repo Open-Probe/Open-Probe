@@ -18,6 +18,8 @@ from crawl4ai.extraction_strategy import (CosineStrategy, ExtractionStrategy,
                                           NoExtractionStrategy)
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 
+from deepsearch.web_search.utils import get_wikipedia_content
+
 
 class StrategyFactory:
     """Factory for creating extraction strategies"""
@@ -150,27 +152,7 @@ def print_extraction_result(result: ExtractionResult):
         print(f"Error in {result.name}: {result.error}")
 
 
-def get_wikipedia_content(url: str) -> str | None:
-    """
-    Extract content from a Wikipedia URL.
-    
-    Args:
-        url: Wikipedia URL to scrape
-        
-    Returns:
-        str: Page content if found, None otherwise
-    """
-    wiki = wikipediaapi.Wikipedia(user_agent="opendeepsearch", language='en')
-    
-    # Extract the page title from URL (everything after /wiki/)
-    try:
-        title = url.split('/wiki/')[-1]
-        page = wiki.page(title)
-        if page.exists():
-            return page.text
-        return None
-    except Exception:
-        return None
+
 
 
 class WebScraper:
@@ -305,8 +287,8 @@ class WebScraper:
             if result.success:
                 if extraction_config.name in ['no_extraction', 'cosine']:
                     # For strategies that return a list of dictionaries
-                    if hasattr(result, 'markdown_v2'):
-                        content = result.markdown_v2.raw_markdown
+                    if hasattr(result, 'markdown'):
+                        content = result.markdown.raw_markdown
                     elif hasattr(result, 'raw_html'):
                         content = result.raw_html
                     elif hasattr(result, 'extracted_content') and result.extracted_content:
@@ -316,13 +298,13 @@ class WebScraper:
                             content = result.extracted_content
                     
                     if self.filter_content and content:
-                        from src.opendeepsearch.context_scraping.utils import \
+                        from deepsearch.web_search.utils import \
                             filter_quality_content
                         content = filter_quality_content(content)
                 else:
                     content = result.extracted_content
                     if self.filter_content and content:
-                        from src.opendeepsearch.context_scraping.utils import \
+                        from deepsearch.web_search.utils import \
                             filter_quality_content
                         content = filter_quality_content(content)
 
@@ -337,8 +319,8 @@ class WebScraper:
             )
             
             if result.success:
-                extraction_result.raw_markdown_length = len(result.markdown_v2.raw_markdown)
-                extraction_result.citations_markdown_length = len(result.markdown_v2.markdown_with_citations)
+                extraction_result.raw_markdown_length = len(result.markdown.raw_markdown)
+                extraction_result.citations_markdown_length = len(result.markdown.markdown_with_citations)
             elif self.debug:
                 print(f"Debug: Final extraction result: {extraction_result.__dict__}")
 
@@ -355,3 +337,32 @@ class WebScraper:
                 success=False,
                 error=str(e)
             )
+
+
+# async def main():
+#     # Example usage with single URL
+#     single_url = "https://example.com/product-page"
+#     scraper = WebScraper(debug=True)
+#     results = await scraper.scrape(single_url)
+    
+#     # Print single URL results
+#     for result in results.values():
+#         print_extraction_result(result)
+
+#     # Example usage with multiple URLs
+#     urls = [
+#         "https://example.com",
+#         "https://python.org",
+#         "https://github.com"
+#     ]
+    
+#     multi_results = await scraper.scrape_many(urls)
+    
+#     # Print multiple URL results
+#     for url, url_results in multi_results.items():
+#         print(f"\nResults for {url}:")
+#         for result in url_results.values():
+#             print_extraction_result(result)
+
+# if __name__ == "__main__":
+#     asyncio.run(main())

@@ -83,20 +83,20 @@ class SourceProcessor:
             # Split the HTML content into chunks
             documents = self.chunker.split_text(html)
 
-            # # Save documents and query to JSON file
-            # import json
-            # import os
-            # from datetime import datetime
+            # Save documents and query to JSON file
+            import json
+            import os
+            from datetime import datetime
             
-            # # Create data directory if it doesn't exist
-            # os.makedirs("data", exist_ok=True)
+            # Create data directory if it doesn't exist
+            os.makedirs("data", exist_ok=True)
             
-            # # Load existing documents if file exists
-            # json_file = "documents.json"
-            # stored_docs = []
-            # if os.path.exists(json_file):
-            #     with open(json_file, "r") as f:
-            #         stored_docs = json.load(f)
+            # Load existing documents if file exists
+            json_file = "testing_reranked_documents.json"
+            stored_docs = []
+            if os.path.exists(json_file):
+                with open(json_file, "r") as f:
+                    stored_docs = json.load(f)
             
             # Get reranked content first so we can store both original and ranked
             reranked_content = self.semantic_searcher.get_reranked_documents(
@@ -105,22 +105,22 @@ class SourceProcessor:
                 top_k=self.top_results
             )
             
-            # # Create document entry with both original and ranked content
-            # doc_entry = {
-            #     "query": query,
-            #     "original_documents": documents,
-            #     "ranked_documents": reranked_content,
-            #     "timestamp": datetime.now().isoformat()
-            # }
+            # Create document entry with both original and ranked content
+            doc_entry = {
+                "query": query,
+                "original_documents": documents,
+                "ranked_documents": reranked_content,
+                "timestamp": datetime.now().isoformat()
+            }
             
-            # # Update stored documents, keeping only latest entry
-            # stored_docs = [doc_entry]
+            # Update stored documents, keeping only latest entry
+            stored_docs = [doc_entry]
             
-            # # Save updated documents
-            # with open(json_file, "w") as f:
-            #     json.dump(stored_docs, f, indent=2)
+            # Save updated documents
+            with open(json_file, "w") as f:
+                json.dump(stored_docs, f, indent=2)
 
-            # print(f"Ranked content: {reranked_content} saved in {json_file}")
+            print(f"Ranked content: {reranked_content} saved in {json_file}")
             
             return reranked_content
         
