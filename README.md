@@ -18,6 +18,9 @@ The DeepSearch system is designed to perform multi-step web searches with intell
 - **Reflection**: Provides reasoning about why previous plans failed and how to improve them
 - **Web Search Integration**: Seamlessly integrates with search APIs to gather information
 
+### Current Architecture
+![image](https://github.com/user-attachments/assets/4e6d22b7-2dcc-446a-a129-8f1ba5abf1cd)
+
 #### How it Works
 1. The system analyzes the user's question
 2. It creates a search plan with multiple sub-queries
