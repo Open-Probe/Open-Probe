@@ -19,3 +19,16 @@ class AgentState(TypedDict):
     previous_plan: List[str]
     reflection: str
     replan_count: int
+    # """
+    #  CODE AGENT STATE
+    # error : Binary flag for control flow to check whether test error was tripped
+    # next_step: Binary flag for control flow to check whether next step in code solution is required
+    # generation: code solution
+    # iterations: number of tries
+    # """
+    task: str
+    error: str
+    next_step: str
+    generation: str
+    iterations: int
+    error_iterations: int

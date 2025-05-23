@@ -3,7 +3,7 @@ import asyncio
 from langchain_core.messages import HumanMessage
 from deepsearch.prompt import MULTIHOP_QA_INSTRUCTION
 from deepsearch.utils import extract_content
-from deepsearch.graph import graph
+from deepsearch.graph_copy_1 import graph
 
 
 async def solve(question):
@@ -22,6 +22,11 @@ async def solve(question):
         "needs_replan": False,
         "previous_plan": [],
         "reflection": "",
+        "replan_count": 0,
+        "task": "",
+        "generation": "",
+        "error": "",
+        "error_iterations": 0
     },
     {"recursion_limit": 40}
     )

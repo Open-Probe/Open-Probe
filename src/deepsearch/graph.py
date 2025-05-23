@@ -33,9 +33,11 @@ from .prompt import (
     PLANNING_INSTRUCTION,
     REPLAN_INSTRUCTION,
     SUMMARY_SYSTEM_PROMPT,
-    ANSWER_OR_REPLAN_PROMPT
+    ANSWER_OR_REPLAN_PROMPT,
+    CODE_INSTRUCTION
 )
 from .state import AgentState
+# from .state import CodeAgentState
 from .utils import (
     extract_content,
     extract_last_json_block,
@@ -60,6 +62,105 @@ MODEL = ChatGoogleGenerativeAI(
 def extract_reflection(text: str) -> str:
     """Extract reflection content from text."""
     return extract_content(text, "reflection")
+ 
+def decide_to_code(state: AgentState) -> Command[Literal["execute_code", "master"]]:
+
+    """
+    Checks whether maximum allowed iterations are over
+    """
+
+    iterations = state["iterations"]
+    error_iterations = state["error_iterations"]
+    next_step = state["next_step"]
+
+    if iterations >= 3 or error_iterations >= 3 or next_step == END:
+        print("---DECISION: FINISH---")
+        return Command(
+                    goto="master",
+                    update={
+                        "messages": ["This is as far as you can go. Provide final answer with what you have gathered so far."],
+                        "iterations": iterations,
+                        "error_iterations": error_iterations,
+                        "next_step": next_step
+                    }
+                )
+    else:
+        return Command(
+                    goto="execute_code",
+                    update={
+                        "messages": [],
+                        "iterations": iterations,
+                        "error_iterations": error_iterations,
+                        "next_step": next_step
+                    }
+                )
+    
+def execute_code(state: AgentState) -> Command[Literal["master"]]:
+    
+    """
+    Node to generate code solution
+
+    Arguments:
+        state (dict): The current graph state
+
+    Returns:
+        state (dict): The updated graph state
+
+    """
+
+    print("----- Generating Code -----")
+
+    # Store State variables
+    next_step = state["next_step"]
+    iterations = state["iterations"]
+    error_iterations = state["error_iterations"]
+    task = state["task"]
+
+    # if we have been routed back with error
+    if state["error"] == "yes":
+        # error fix prompt
+        messages = [
+            (
+                "Now, try again. Invoke the code tool to structure the output with a prefix, imports and code block."
+            )
+        ]
+        state["error"] = "no"
+    
+    else:
+        messages = [
+            (
+                f"""
+                    The user wants to complete this task: {task}.
+                    Based on what you already know, generate python code for it.
+                    Invoke the code tool to structure the output with a prefix, imports and code block."""
+            )
+        ]
+
+    summary_messages = [
+        SystemMessage(CODE_INSTRUCTION),
+        HumanMessage(messages)
+    ]
+    code_solution = MODEL.invoke(
+        summary_messages
+    )
+    print(f"Code solution: {code_solution}")
+
+    code_solution = code_solution.content
+
+    # Increment
+    iterations = iterations+1
+
+    return Command(
+        goto="master",
+        update={
+            "messages": [code_solution],
+            "generation": code_solution,
+            "iterations": iterations,
+            "error_iterations": error_iterations,
+            "next_step": next_step,
+            "error": state["error"]
+        }
+    )
 
 def decide_action(state: AgentState) -> Command[Literal["search", "master"]]:
     """
@@ -101,7 +202,19 @@ def decide_action(state: AgentState) -> Command[Literal["search", "master"]]:
                     "plan_query_index": state["plan_query_index"]
                 }
             )
-    
+        elif "<code>" in response:
+            print("Inside Decide to Code Action")
+            query = plan_list[state["plan_query_index"]]
+            state["task"] = query
+            ai_message = AIMessage(f"<code_task>{query}</code_task>")
+            return Command(
+                goto="execute_code",
+                update={
+                    "messages": [ai_message],
+                    "task": state["task"]
+                }
+            )
+
     # Handle completed search with results
     elif state["plan_query_index"] == -1 and "<search_result>" in response:
         print("Search completed, moving to master")
@@ -117,7 +230,7 @@ def decide_action(state: AgentState) -> Command[Literal["search", "master"]]:
         )
   
 
-def master(state: AgentState) -> Command[Literal["plan", "search", END]]:
+def master(state: AgentState) -> Command[Literal["plan", "search", "execute_code", END]]:
     """
     Main decision-making node that processes messages and decides next steps.
     
@@ -132,13 +245,13 @@ def master(state: AgentState) -> Command[Literal["plan", "search", END]]:
     print(f"Last message: {state['messages'][-1].content}")
     
     # Check if we need to decide an action based on previous response
-    if "<plan_result>" in messages[-1].content or "<search_result>" in messages[-1].content:
+    if "<plan_result>" in messages[-1].content or "<search_result>" in messages[-1].content or "<code_result>" in messages[-1].content:
         print("Inside Decide Action")
         return decide_action(state)
     
     # Generate a new response
     ai_message = MODEL.invoke(
-        messages, stop=["</plan>", "</plan_result>", "</search_query>", "</answer>", "</replan>"])
+        messages, stop=["</plan>", "</plan_result>", "</search_query>", "</answer>", "</replan>", "</code>"])
     response = ai_message.content
     
     # Handle case where content is a list of candidates
@@ -218,6 +331,10 @@ def master(state: AgentState) -> Command[Literal["plan", "search", END]]:
                 "replan_count": replan_count
             }
         )
+    elif "<code>" in response:
+        print("Inside Decide to Code Action")
+        return decide_to_code(state)
+    
     else:
         print("No specific tags found, deciding action")
         return decide_action(state)
@@ -371,11 +488,13 @@ async def search(state: AgentState) -> Command[Literal["master"]]:
     )
 
 
+
 # Build the agent graph
 builder = StateGraph(AgentState)
 builder.add_node("master", master)
 builder.add_node("plan", plan)
 builder.add_node("search", search)
+builder.add_node("execute_code", execute_code)
 builder.add_edge(START, "master")
 
 # Compile the graph
