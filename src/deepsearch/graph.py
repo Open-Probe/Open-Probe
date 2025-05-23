@@ -56,6 +56,10 @@ MODEL = ChatGoogleGenerativeAI(
     temperature=0.2,
     google_api_key=GOOGLE_API_KEY
 )
+LITE_MODEL = ChatGoogleGenerativeAI(
+    model="gemini-2.0-flash-001",
+    temperature=0.2
+)
 
 def extract_reflection(text: str) -> str:
     """Extract reflection content from text."""
@@ -132,13 +136,13 @@ def master(state: AgentState) -> Command[Literal["plan", "search", END]]:
     print(f"Last message: {state['messages'][-1].content}")
     
     # Check if we need to decide an action based on previous response
-    if "<plan_result>" in messages[-1].content or "<search_result>" in messages[-1].content:
-        print("Inside Decide Action")
-        return decide_action(state)
+    # if "<plan_result>" in messages[-1].content or "<search_result>" in messages[-1].content:
+    #     print("Inside Decide Action")
+    #     return decide_action(state)
     
     # Generate a new response
     ai_message = MODEL.invoke(
-        messages, stop=["</plan>", "</plan_result>", "</search_query>", "</answer>", "</replan>"])
+        messages, stop=["</plan>", "</search_query>", "</answer>", "</replan>"])
     response = ai_message.content
     
     # Handle case where content is a list of candidates
@@ -161,11 +165,17 @@ def master(state: AgentState) -> Command[Literal["plan", "search", END]]:
             goto=END,
             update={"messages": [ai_message], "answer": state["answer"]}
         )
-    elif "<plan>" in response:
+    if state["current_iter"] > state["max_iter"]:
+        return Command(
+            goto=END,
+            update={"messages": [ai_message], "answer": state["answer"]}
+        )
+    if "<plan>" in response:
         print("Found plan tag")
         response += "</plan>"
         ai_message.content = response
-        state["plan_goal"] = extract_content(response, "plan")
+        # state["plan_goal"] = extract_content(response, "plan")
+        state["plan_goal"] = state["question"]
         # Initialize replan values to defaults
         state["needs_replan"] = False
         state["previous_plan"] = []
@@ -182,8 +192,18 @@ def master(state: AgentState) -> Command[Literal["plan", "search", END]]:
                 "replan_count": 0
             }
         )
-    elif "<replan>" in response:
-        print("Found replan tag")
+    if "<search_query>" in response:
+        response += "</search_query>"
+        ai_message.content = response
+        state["search_query"] = extract_content(response, "search_query")
+        return Command(
+            goto="search",
+            update={"messages": [ai_message],
+                    "search_query": state["search_query"], "plan_query_index": state["plan_query_index"]}
+        )
+    else:
+    # if "<replan>" in response:
+        # print("Found replan tag")
         
         # Check if we've reached the replan limit
         if state.get("replan_count", 0) >= 2:
@@ -199,8 +219,8 @@ def master(state: AgentState) -> Command[Literal["plan", "search", END]]:
                 goto="master",
                 update={"messages": [ai_message]}
             )
-        
-        response += "</replan>"
+        response += "<plan></plan>"
+        # response += "</replan>"
         ai_message.content = response
         # Store the current plan as previous plan
         state["previous_plan"] = state["plan_result"]
@@ -218,9 +238,9 @@ def master(state: AgentState) -> Command[Literal["plan", "search", END]]:
                 "replan_count": replan_count
             }
         )
-    else:
-        print("No specific tags found, deciding action")
-        return decide_action(state)
+    # else:
+    #     print("No specific tags found, deciding action")
+    #     return decide_action(state)
 
 
 def plan(state: AgentState) -> Command[Literal["master"]]:
@@ -354,7 +374,7 @@ async def search(state: AgentState) -> Command[Literal["master"]]:
     ]
     
     print("Generating search summary...")
-    ai_message = MODEL.invoke(summary_messages)
+    ai_message = LITE_MODEL.invoke(summary_messages)
     response = ai_message.content.strip()
     state["search_summary"] = response
 

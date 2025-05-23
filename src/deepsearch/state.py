@@ -9,6 +9,7 @@ class AgentState(TypedDict):
     messages: Annotated[Sequence[AnyMessage], add_messages]
     current_iter: int
     max_iter: int
+    question: str
     plan_goal: str
     plan_result: List[str]
     plan_query_index: int

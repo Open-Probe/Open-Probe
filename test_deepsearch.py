@@ -13,6 +13,7 @@ async def solve(question):
         "messages": [HumanMessage(prompt)],
         "current_iter": 0,
         "max_iter": 5,
+        "question": question,
         "search_query": "",
         "search_summary": "",
         "answer": "",
