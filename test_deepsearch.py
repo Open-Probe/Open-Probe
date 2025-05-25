@@ -1,9 +1,11 @@
 import asyncio
 
 from langchain_core.messages import HumanMessage
-from deepsearch.prompt import MULTIHOP_QA_INSTRUCTION
-from deepsearch.utils import extract_content
-from deepsearch.graph import graph
+from deepsearch import (
+    graph, 
+    extract_content, 
+    MULTIHOP_QA_INSTRUCTION
+)
 
 
 async def solve(question):

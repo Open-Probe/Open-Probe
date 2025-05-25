@@ -334,7 +334,11 @@ async def search(state: AgentState) -> Command[Literal["master"]]:
 
     
     source_processor = SourceProcessor(reranker="jina")
-    
+    reranker_ip = os.getenv("RERANKER_SERVER_HOST_IP")
+    reranker_port = os.getenv("RERANKER_SERVER_PORT")
+    if reranker_ip and reranker_port:
+        source_processor = SourceProcessor(reranker="local")
+
     print("Processing sources and building context...")
     max_sources = 2
     processed_sources = await source_processor.process_sources(
