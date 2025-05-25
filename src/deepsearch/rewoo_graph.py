@@ -1,0 +1,192 @@
+import os
+import re
+from typing import Annotated, Sequence, TypedDict, List, Literal
+
+from langchain_core.messages import AnyMessage, AIMessage, HumanMessage, SystemMessage
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langgraph.graph import END, START, StateGraph, add_messages
+from langgraph.types import Command
+
+from .web_search.context_builder import build_context
+from .web_search.serp_search import create_search_api
+from .web_search.source_processor import SourceProcessor
+from .rewoo_prompt import (
+    PLAN_SYSTEM_PROMPT,
+    SOLVER_PROMPT,
+    SUMMARY_SYSTEM_PROMPT,
+    QA_PROMPT
+)
+
+WEB_SEARCH_API_KEY = os.getenv("WEB_SEARCH_API_KEY")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+MODEL = ChatGoogleGenerativeAI(
+    model="gemini-2.5-flash-preview-04-17",
+    temperature=0.2,
+    google_api_key=GOOGLE_API_KEY
+)
+LITE_MODEL = ChatGoogleGenerativeAI(
+    model="gemini-2.0-flash-001",
+    temperature=0.2,
+    google_api_key=GOOGLE_API_KEY
+)
+
+# Regex to match expressions of the form E#... = ...[...]
+REGEX_PATTERN = r"Plan:\s*(.+)\s*(#E\d+)\s*=\s*(\w+)\s*\[([^\]]+)\]"
+
+
+class ReWOOState(TypedDict):
+    messages: Annotated[Sequence[AnyMessage], add_messages]
+    task: str
+    plan_string: str
+    steps: List
+    results: dict
+    result: str
+    intermediate_result: str
+    search_query: str
+
+
+def master(state: ReWOOState) -> Command[Literal["plan", "search", "solve", END]]:
+    if state["result"] is not None:
+        return Command(
+            goto=END
+        )
+    if len(state["steps"]) == 0:
+        return Command(
+            goto="plan"
+        )
+    if len(state["results"]) == len(state["steps"]):
+        return Command(
+            goto="solve"
+        )
+
+    current_step = len(state["results"])
+    _, step_name, tool, tool_input = state["steps"][current_step]
+    result_dict = state["results"]
+
+    # Replace all occurrences of that k in the current tool_input string with v
+    for k, v in result_dict.items():
+        tool_input = tool_input.replace(k, v)
+
+    if tool == "Search":
+        return Command(
+            goto="search",
+            update={"search_query": tool_input}
+        )
+
+    if tool == "LLM":
+        response = MODEL.invoke(tool_input)
+        result = response.content.strip()
+        result_dict[step_name] = str(result)
+        # print("master LLM", len(result_dict), result_dict)
+
+    # TODO: handle unsucessful plan
+
+    return Command(
+        goto="master",
+        update={"results": result_dict}
+    )
+
+
+def plan(state: ReWOOState) -> Command[Literal["master"]]:
+    task = state["task"]
+    prompt = QA_PROMPT.format(task=task)
+    result = MODEL.invoke(
+        [SystemMessage(PLAN_SYSTEM_PROMPT), HumanMessage(prompt)])
+    
+    # Find all matches in the sample text
+    matches = re.findall(REGEX_PATTERN, result.content)
+
+    return Command(
+        goto="master",
+        update={"steps": matches, "plan_string": result.content}
+    )
+
+
+async def search(state: ReWOOState) -> Command[Literal["master"]]:
+    """
+    Perform web search based on the query and process the results.
+
+    Args:
+        state: The current agent state
+
+    Returns:
+        Command to navigate back to the master node with search results
+    """
+    print("\n==== SEARCH NODE ====")
+    query = state["search_query"]
+    print(f"Searching for: {query}")
+
+    # Initialize search client
+    serp_search_client = create_search_api(
+        search_provider="serper",
+        serper_api_key=WEB_SEARCH_API_KEY
+    )
+
+    # Get and process sources
+    print("Getting sources from search API")
+    sources = serp_search_client.get_sources(query)
+
+    source_processor = SourceProcessor(reranker="jina")
+
+    print("Processing sources and building context...")
+    max_sources = 2
+    processed_sources = await source_processor.process_sources(
+        sources,
+        max_sources,
+        query,
+        pro_mode=True
+    )
+
+    # Build context from processed sources
+    context = build_context(processed_sources)
+
+    # Generate summary of search results
+    summary_messages = [
+        SystemMessage(SUMMARY_SYSTEM_PROMPT),
+        HumanMessage(context)
+    ]
+
+    print("Generating search summary...")
+    ai_message = LITE_MODEL.invoke(summary_messages)
+    response = ai_message.content.strip()
+
+    print("Search completed, returning to master")
+
+    current_step = len(state["results"])
+    _, step_name, _, _ = state["steps"][current_step]
+    result_dict = state["results"]
+    result_dict[step_name] = response
+
+    # print("search", len(result_dict), result_dict)
+
+    return Command(
+        goto="master",
+        update={"results": result_dict}
+    )
+
+
+def solve(state: ReWOOState) -> Command[Literal["master"]]:
+    plan = ""
+    for step_plan, step_name, tool, tool_input in state["steps"]:
+        result_dict = state["results"]
+        for k, v in result_dict.items():
+            tool_input = tool_input.replace(k, v)
+            step_name = step_name.replace(k, v)
+        plan += f"Plan: {step_plan}\n{step_name} = {tool}[{tool_input}]"
+    prompt = SOLVER_PROMPT.format(plan=plan, task=state["task"])
+    result = MODEL.invoke(prompt)
+
+    return Command(
+        goto="master",
+        update={"result": result.content}
+    )
+
+
+builder = StateGraph(ReWOOState)
+builder.add_node("master", master)
+builder.add_node("plan", plan)
+builder.add_node("search", search)
+builder.add_node("solve", solve)
+builder.add_edge(START, "master")
+
+graph = builder.compile()
