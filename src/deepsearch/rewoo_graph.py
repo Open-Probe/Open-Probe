@@ -2,7 +2,8 @@ import os
 import re
 from typing import Annotated, Sequence, TypedDict, List, Literal
 
-from langchain_core.messages import AnyMessage, AIMessage, HumanMessage, SystemMessage
+from langchain_experimental.utilities import PythonREPL
+from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import END, START, StateGraph, add_messages
 from langgraph.types import Command
@@ -13,9 +14,12 @@ from .web_search.source_processor import SourceProcessor
 from .rewoo_prompt import (
     PLAN_SYSTEM_PROMPT,
     SOLVER_PROMPT,
-    SUMMARY_SYSTEM_PROMPT,
-    QA_PROMPT
+    SUMMARY_INSTRUCTION,
+    QA_PROMPT,
+    CODE_SYSTEM_PROMPT,
+    CODE_INSTRUCTION
 )
+from .utils import extract_content
 
 WEB_SEARCH_API_KEY = os.getenv("WEB_SEARCH_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
@@ -33,6 +37,28 @@ LITE_MODEL = ChatGoogleGenerativeAI(
 # Regex to match expressions of the form E#... = ...[...]
 REGEX_PATTERN = r"Plan:\s*(.+)\s*(#E\d+)\s*=\s*(\w+)\s*\[([^\]]+)\]"
 
+# Warning: This executes code locally, which can be unsafe when not sandboxed
+PY_REPL = PythonREPL()
+
+
+def extract_last_python_block(input_str):
+    # Find all code blocks that might contain python
+    py_blocks = re.findall(r'```(?:python)?\s*([\s\S]*?)```', input_str)
+
+    if not py_blocks:
+        return None
+    return py_blocks[-1].strip()
+
+
+def python_repl_tool(code):
+    """Use this to execute python code. If you want to see the output of a value,
+    you should print it out with `print(...)`. This is visible to the user."""
+    try:
+        result = PY_REPL.run(code)
+    except BaseException as e:
+        return f"Failed to execute. Error: {repr(e)}"
+    return result
+
 
 class ReWOOState(TypedDict):
     messages: Annotated[Sequence[AnyMessage], add_messages]
@@ -45,7 +71,7 @@ class ReWOOState(TypedDict):
     search_query: str
 
 
-def master(state: ReWOOState) -> Command[Literal["plan", "search", "solve", END]]:
+def master(state: ReWOOState) -> Command[Literal["plan", "search", "code", "solve", END]]:
     if state["result"] is not None:
         return Command(
             goto=END
@@ -72,7 +98,11 @@ def master(state: ReWOOState) -> Command[Literal["plan", "search", "solve", END]
             goto="search",
             update={"search_query": tool_input}
         )
-
+    if tool == "Code":
+        return Command(
+            goto="code",
+            update={"search_query": tool_input}
+        )
     if tool == "LLM":
         response = MODEL.invoke(tool_input)
         result = response.content.strip()
@@ -92,7 +122,7 @@ def plan(state: ReWOOState) -> Command[Literal["master"]]:
     prompt = QA_PROMPT.format(task=task)
     result = MODEL.invoke(
         [SystemMessage(PLAN_SYSTEM_PROMPT), HumanMessage(prompt)])
-    
+
     # Find all matches in the sample text
     matches = re.findall(REGEX_PATTERN, result.content)
 
@@ -141,23 +171,46 @@ async def search(state: ReWOOState) -> Command[Literal["master"]]:
     context = build_context(processed_sources)
 
     # Generate summary of search results
+    prompt = SUMMARY_INSTRUCTION.format(
+        task=query, context=context
+    )
     summary_messages = [
-        SystemMessage(SUMMARY_SYSTEM_PROMPT),
-        HumanMessage(context)
+        HumanMessage(prompt)
     ]
 
     print("Generating search summary...")
     ai_message = LITE_MODEL.invoke(summary_messages)
     response = ai_message.content.strip()
+    result = extract_content(response, "answer")
 
     print("Search completed, returning to master")
 
     current_step = len(state["results"])
     _, step_name, _, _ = state["steps"][current_step]
     result_dict = state["results"]
-    result_dict[step_name] = response
+    result_dict[step_name] = result
 
-    # print("search", len(result_dict), result_dict)
+    return Command(
+        goto="master",
+        update={"results": result_dict}
+    )
+
+
+def code(state: ReWOOState) -> Command[Literal["master"]]:
+    query = state["search_query"]
+    ai_message = MODEL.invoke([
+        SystemMessage(CODE_SYSTEM_PROMPT),
+        HumanMessage(CODE_INSTRUCTION.format(task=query))
+    ])
+
+    code_solution = extract_last_python_block(ai_message.content)
+    print(f"Code solution:\n{code_solution}")
+    result = python_repl_tool(code_solution)
+
+    current_step = len(state["results"])
+    _, step_name, _, _ = state["steps"][current_step]
+    result_dict = state["results"]
+    result_dict[step_name] = result
 
     return Command(
         goto="master",
@@ -186,6 +239,7 @@ builder = StateGraph(ReWOOState)
 builder.add_node("master", master)
 builder.add_node("plan", plan)
 builder.add_node("search", search)
+builder.add_node("code", code)
 builder.add_node("solve", solve)
 builder.add_edge(START, "master")
 
