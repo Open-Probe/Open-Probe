@@ -49,13 +49,25 @@ from .web_search.source_processor import SourceProcessor
 load_dotenv()
 WEB_SEARCH_API_KEY = os.getenv("WEB_SEARCH_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-
+openai_api_key = os.getenv("LAMBDA_API_KEY")
+openai_api_base = "https://api.lambda.ai/v1"
+openai_model = "deepseek-r1-671b"
 # Initialize models
-MODEL = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash-preview-04-17",
-    temperature=0.2,
-    google_api_key=GOOGLE_API_KEY
-)
+if openai_api_key:
+    from langchain_openai import ChatOpenAI
+    print("Using LAMBDA_API")
+    MODEL = ChatOpenAI(
+        model=openai_model,
+        temperature=0.2,
+        openai_api_key=openai_api_key,
+        base_url=openai_api_base,
+    )
+else:
+    MODEL = ChatGoogleGenerativeAI(
+        model="gemini-2.5-flash-preview-04-17",
+        temperature=0.2,
+        google_api_key=GOOGLE_API_KEY
+    )
 
 def extract_reflection(text: str) -> str:
     """Extract reflection content from text."""
@@ -186,7 +198,7 @@ def master(state: AgentState) -> Command[Literal["plan", "search", END]]:
         print("Found replan tag")
         
         # Check if we've reached the replan limit
-        if state.get("replan_count", 0) >= 2:
+        if (openai_api_key and openai_model == "deepseek-r1-671b") or state.get("replan_count", 0) >= 2:
             print("Replan limit reached (2), forcing answer")
             # Force the model to answer with what it has
             ai_message = AIMessage(
@@ -333,12 +345,12 @@ async def search(state: AgentState) -> Command[Literal["master"]]:
     sources = serp_search_client.get_sources(query)
 
     
-    source_processor = SourceProcessor(reranker="jina")
     reranker_ip = os.getenv("RERANKER_SERVER_HOST_IP")
     reranker_port = os.getenv("RERANKER_SERVER_PORT")
     if reranker_ip and reranker_port:
         source_processor = SourceProcessor(reranker="local")
-
+    else:
+        source_processor = SourceProcessor(reranker="jina")
     print("Processing sources and building context...")
     max_sources = 2
     processed_sources = await source_processor.process_sources(

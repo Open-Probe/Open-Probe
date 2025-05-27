@@ -37,9 +37,10 @@ async def solve(question):
         print("Failed without an answer!")  
     print(f"The answer is: {answer}")
 
+query = "If my future wife has the same first name as the 15th first lady of the United States' mother and her surname is the same as the second assassinated president's mother's maiden name, what is my future wife's name? "
 
+#query = "who was the one to invent rubik's cube"
 # query = "Which magazine was started first Arthur's Magazine or First for Women?"
-query = "who was the one to invent rubik's cube"
 # query = "How much tin (kg) with 100 kg copper can lower the mixture’s melting point to 800 celcius?"
 # query = "How many meters taller is the Burj Khalifa compared to taj mahal and what would be the square root of that number times the sum of both the structures"
 # query = "How many 300 passenger planes are needed to carry 1% of New York’s population?"
