@@ -9,7 +9,7 @@ from typing import List, Optional, Tuple
 from .chunker import Chunker
 from .crawl4ai_scraper import WebScraper
 from .jina_reranker import JinaReranker
-
+from .local_reranker import LocalReranker
 
 @dataclass
 class Source:
@@ -39,6 +39,9 @@ class SourceProcessor:
         if reranker.lower() == "jina":
             self.semantic_searcher = JinaReranker()
             print("Using Jina Reranker")
+        elif reranker.lower() == "local":
+            self.semantic_searcher = LocalReranker()
+            print("Using Local Reranker")
         # else:  # default to infinity
         #     self.semantic_searcher = InfinitySemanticSearcher()
         #     print("Using Infinity Reranker")
