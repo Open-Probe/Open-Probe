@@ -123,7 +123,7 @@ class SourceProcessor:
             with open(json_file, "w") as f:
                 json.dump(stored_docs, f, indent=2)
 
-            print(f"Ranked content: {reranked_content} saved in {json_file}")
+            print(f"Ranked content is saved in {json_file}")
             
             return reranked_content
         

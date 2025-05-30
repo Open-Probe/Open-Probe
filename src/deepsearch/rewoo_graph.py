@@ -18,9 +18,13 @@ from .rewoo_prompt import (
     QA_PROMPT,
     CODE_SYSTEM_PROMPT,
     CODE_INSTRUCTION,
-    REPLAN_INSTRUCTION
+    REPLAN_INSTRUCTION,
+    QUESTION_REWORD_INSTRUCTION
 )
 from .utils import extract_content
+from dotenv import load_dotenv
+
+load_dotenv()
 
 WEB_SEARCH_API_KEY = os.getenv("WEB_SEARCH_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
@@ -98,14 +102,18 @@ def master(state: ReWOOState) -> Command[Literal["plan", "search", "code", "solv
     _, step_name, tool, tool_input = state["steps"][current_step]
     result_dict = state["results"]
 
+    print("\n======result_dict=======\n", result_dict)
+
     # Replace all occurrences of that k in the current tool_input string with v
     for k, v in result_dict.items():
         tool_input = tool_input.replace(k, v)
 
+    print("\n======tool_input=======\n", tool_input)
     if tool == "Search":
+        searchable_query = reword_tool_input(tool_input)
         return Command(
             goto="search",
-            update={"search_query": tool_input}
+            update={"search_query": searchable_query}
         )
     if tool == "Code":
         return Command(
@@ -205,13 +213,14 @@ async def search(state: ReWOOState) -> Command[Literal["master"]]:
     ]
 
     print("Generating search summary...")
-    ai_message = LITE_MODEL.invoke(summary_messages)
+    ai_message = MODEL.invoke(summary_messages)
     response = ai_message.content.strip()
     result = extract_content(response, "answer")
 
     # Time to replan/reflection/re-search
     if result is None:
         result = response
+        print("\n======Not satisfactory result=======\n", result)
         state["needs_replan"] = True
 
     print("Search completed, returning to master")
@@ -269,6 +278,12 @@ def solve(state: ReWOOState) -> Command[Literal["master"]]:
         goto="master",
         update={"result": result.content}
     )
+
+
+def reword_tool_input(tool_input):
+    prompt = QUESTION_REWORD_INSTRUCTION.format(tool_input=tool_input)
+    response = LITE_MODEL.invoke(prompt)
+    return extract_content(response.content.strip(), "reworded_query")
 
 
 builder = StateGraph(ReWOOState)

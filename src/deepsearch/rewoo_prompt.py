@@ -125,7 +125,7 @@ population_india_2022 = 1.417 * 10**9 # 1.417 billion
 # Calculate combined population
 combined_population_2022 = population_china_2022 + population_india_2022
 # Print the result
-print(f"The combined population of China and India in 2022 is {combined_population_2022} people.")
+print(f"The combined population of China and India in 2022 is {{combined_population_2022}} people.")
 ```
 
 """
@@ -134,4 +134,24 @@ CODE_INSTRUCTION = """\
 Task: {task}
 Code:
 
+"""
+
+QUESTION_REWORD_INSTRUCTION = """
+You are a helpful assistant that rephrases text into a clear, searchable question suitable for web search.
+
+**Instructions:**
+1.  **Analyze the input:** Determine if the provided text is already a clear and searchable question.
+2.  **Reword if necessary:** If the input is unclear, fragmented, or not in the form of a question, rephrase it to be a concise and effective search query.
+3.  **Return as is:** If the input is already a good search query, return it unchanged.
+4.  **Formatting:** The reworded or original query must be delimited by `<reworded_query>...</reworded_query>`.
+
+Example:
+Input: What is the capital of France?
+Output: <reworded_query>What is the capital of France?</reworded_query>
+
+Input: population of China
+Output: <reworded_query>What is the population of China?</reworded_query>
+
+Input: {tool_input}
+Output:
 """
