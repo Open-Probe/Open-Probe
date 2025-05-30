@@ -53,6 +53,15 @@ Given the above task and the previous plan, please re-plan and generate a new pl
 
 """
 
+COMMONSENSE_INSTRUCTION = """\
+You are a commonsense agent. You can answer the given question with logical reasoning, basic math and commonsense knowledge.
+Finally, provide your answer in the format <answer>YOUR_ANSWER</answer>.
+
+## Question
+{question}
+
+"""
+
 SOLVER_PROMPT = """\
 You are an AI agent who solves a problem with my assistance. I will provide step-by-step plans(Plan) and evidences(#E) that could be helpful.
 Your task is to briefly summarize each step, then make a short final conclusion for your task.
@@ -132,6 +141,7 @@ print(f"The combined population of China and India in 2022 is {{combined_populat
 
 CODE_INSTRUCTION = """\
 Task: {task}
+
 Code:
 
 """

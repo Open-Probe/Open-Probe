@@ -4,7 +4,6 @@ from typing import Annotated, Sequence, TypedDict, List, Literal
 
 from langchain_experimental.utilities import PythonREPL
 from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import END, START, StateGraph, add_messages
 from langgraph.types import Command
 
@@ -19,7 +18,8 @@ from .rewoo_prompt import (
     CODE_SYSTEM_PROMPT,
     CODE_INSTRUCTION,
     REPLAN_INSTRUCTION,
-    QUESTION_REWORD_INSTRUCTION
+    QUESTION_REWORD_INSTRUCTION,
+    COMMONSENSE_INSTRUCTION
 )
 from .utils import extract_content
 from dotenv import load_dotenv
@@ -28,16 +28,44 @@ load_dotenv()
 
 WEB_SEARCH_API_KEY = os.getenv("WEB_SEARCH_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-MODEL = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash-preview-04-17",
-    temperature=0.2,
-    google_api_key=GOOGLE_API_KEY
-)
-LITE_MODEL = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash-001",
-    temperature=0.2,
-    google_api_key=GOOGLE_API_KEY
-)
+OPENAI_API_KEY = os.getenv("LAMBDA_API_KEY")
+OPENAI_API_BASE_URL = "https://api.lambda.ai/v1"
+
+if OPENAI_API_KEY:
+    from langchain_openai import ChatOpenAI
+    model_id = "deepseek-r1-671b"
+    lite_model_id = "llama3.3-70b-instruct-fp8"
+    MODEL = ChatOpenAI(
+        model=model_id,
+        temperature=0.2,
+        openai_api_key=OPENAI_API_KEY,
+        base_url=OPENAI_API_BASE_URL,
+    )
+    LITE_MODEL = ChatOpenAI(
+        model=lite_model_id,
+        temperature=0.2,
+        openai_api_key=OPENAI_API_KEY,
+        base_url=OPENAI_API_BASE_URL,
+    )
+else:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    model_id = "gemini-2.5-flash-preview-04-17"
+    lite_model_id = "gemini-2.0-flash-001"
+    MODEL = ChatGoogleGenerativeAI(
+        model=model_id,
+        temperature=0.2,
+        google_api_key=GOOGLE_API_KEY
+    )
+    LITE_MODEL = ChatGoogleGenerativeAI(
+        model=lite_model_id,
+        temperature=0.2,
+        google_api_key=GOOGLE_API_KEY
+    )
+
+if os.getenv("RERANKER_SERVER_HOST_IP") and os.getenv("RERANKER_SERVER_PORT"):
+    RERANKER_TYPE = "local"
+else:
+    RERANKER_TYPE = "jina"
 
 # Regex to match expressions of the form E#... = ...[...]
 REGEX_PATTERN = r"Plan:\s*(.+)\s*(#E\d+)\s*=\s*(\w+)\s*\[([^\]]+)\]"
@@ -121,8 +149,13 @@ def master(state: ReWOOState) -> Command[Literal["plan", "search", "code", "solv
             update={"search_query": tool_input}
         )
     if tool == "LLM":
-        response = MODEL.invoke(tool_input)
-        result = response.content.strip()
+        prompt = COMMONSENSE_INSTRUCTION.format(question=tool_input)
+        response = MODEL.invoke([HumanMessage(prompt)])
+        response = response.content.strip()
+        result = extract_content(response, "answer")
+        # Time to replan/reflection/re-search
+        if result is None:
+            result = response
         result_dict[step_name] = str(result)
 
     return Command(
@@ -134,16 +167,17 @@ def master(state: ReWOOState) -> Command[Literal["plan", "search", "code", "solv
 def plan(state: ReWOOState) -> Command[Literal["master"]]:
     task = state["task"]
 
-    if not state["needs_replan"]: 
+    if not state["needs_replan"]:
         prompt = QA_PROMPT.format(task=task)
     else:
-        prompt = REPLAN_INSTRUCTION.format(task=task, prev_plan=state["plan_string"])
-    
+        prompt = REPLAN_INSTRUCTION.format(
+            task=task, prev_plan=state["plan_string"])
+
     result = MODEL.invoke(
         [SystemMessage(PLAN_SYSTEM_PROMPT), HumanMessage(prompt)])
-    
+
     print("plan", result.content)
-        
+
     # Find all matches in the sample text
     matches = re.findall(REGEX_PATTERN, result.content)
 
@@ -190,7 +224,7 @@ async def search(state: ReWOOState) -> Command[Literal["master"]]:
     print("Getting sources from search API")
     sources = serp_search_client.get_sources(query)
 
-    source_processor = SourceProcessor(reranker="jina")
+    source_processor = SourceProcessor(reranker=RERANKER_TYPE)
 
     print("Processing sources and building context...")
     max_sources = 2
