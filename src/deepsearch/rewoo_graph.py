@@ -17,7 +17,8 @@ from .rewoo_prompt import (
     SUMMARY_INSTRUCTION,
     QA_PROMPT,
     CODE_SYSTEM_PROMPT,
-    CODE_INSTRUCTION
+    CODE_INSTRUCTION,
+    REPLAN_INSTRUCTION
 )
 from .utils import extract_content
 
@@ -55,9 +56,10 @@ def python_repl_tool(code):
     you should print it out with `print(...)`. This is visible to the user."""
     try:
         result = PY_REPL.run(code)
+        return result
     except BaseException as e:
-        return f"Failed to execute. Error: {repr(e)}"
-    return result
+        print(f"Failed to execute. Error: {repr(e)}")
+        return None
 
 
 class ReWOOState(TypedDict):
@@ -69,9 +71,16 @@ class ReWOOState(TypedDict):
     result: str
     intermediate_result: str
     search_query: str
+    needs_replan: bool
+    replan_iter: int
+    max_replan_iter: int
 
 
 def master(state: ReWOOState) -> Command[Literal["plan", "search", "code", "solve", END]]:
+    if state["needs_replan"] and state["replan_iter"] < state["max_replan_iter"]:
+        return Command(
+            goto="plan"
+        )
     if state["result"] is not None:
         return Command(
             goto=END
@@ -107,9 +116,6 @@ def master(state: ReWOOState) -> Command[Literal["plan", "search", "code", "solv
         response = MODEL.invoke(tool_input)
         result = response.content.strip()
         result_dict[step_name] = str(result)
-        # print("master LLM", len(result_dict), result_dict)
-
-    # TODO: handle unsucessful plan
 
     return Command(
         goto="master",
@@ -119,16 +125,36 @@ def master(state: ReWOOState) -> Command[Literal["plan", "search", "code", "solv
 
 def plan(state: ReWOOState) -> Command[Literal["master"]]:
     task = state["task"]
-    prompt = QA_PROMPT.format(task=task)
+
+    if not state["needs_replan"]: 
+        prompt = QA_PROMPT.format(task=task)
+    else:
+        prompt = REPLAN_INSTRUCTION.format(task=task, prev_plan=state["plan_string"])
+    
     result = MODEL.invoke(
         [SystemMessage(PLAN_SYSTEM_PROMPT), HumanMessage(prompt)])
-
+    
+    print("plan", result.content)
+        
     # Find all matches in the sample text
     matches = re.findall(REGEX_PATTERN, result.content)
 
+    update_dict = {"steps": matches, "plan_string": result.content}
+    if state["needs_replan"]:
+        # Clean old states
+        extra_dict = {
+            "needs_replan": False,
+            "results": {},
+            "result": None,
+            "intermediate_result": None,
+            "search_query": None,
+            "replan_iter": state["replan_iter"] + 1
+        }
+        update_dict.update(extra_dict)
+
     return Command(
         goto="master",
-        update={"steps": matches, "plan_string": result.content}
+        update=update_dict
     )
 
 
@@ -183,6 +209,11 @@ async def search(state: ReWOOState) -> Command[Literal["master"]]:
     response = ai_message.content.strip()
     result = extract_content(response, "answer")
 
+    # Time to replan/reflection/re-search
+    if result is None:
+        result = response
+        state["needs_replan"] = True
+
     print("Search completed, returning to master")
 
     current_step = len(state["results"])
@@ -192,7 +223,7 @@ async def search(state: ReWOOState) -> Command[Literal["master"]]:
 
     return Command(
         goto="master",
-        update={"results": result_dict}
+        update={"results": result_dict, "needs_replan": state["needs_replan"]}
     )
 
 
@@ -207,6 +238,11 @@ def code(state: ReWOOState) -> Command[Literal["master"]]:
     print(f"Code solution:\n{code_solution}")
     result = python_repl_tool(code_solution)
 
+    # Time to replan/reflection/re-code
+    if result is None:
+        result = "I don't know."
+        state["needs_replan"] = True
+
     current_step = len(state["results"])
     _, step_name, _, _ = state["steps"][current_step]
     result_dict = state["results"]
@@ -214,7 +250,7 @@ def code(state: ReWOOState) -> Command[Literal["master"]]:
 
     return Command(
         goto="master",
-        update={"results": result_dict}
+        update={"results": result_dict, "needs_replan": state["needs_replan"]}
     )
 
 

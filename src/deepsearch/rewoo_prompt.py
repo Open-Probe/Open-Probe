@@ -41,6 +41,18 @@ Plan: Extract the final result from the calculation.
 
 """
 
+REPLAN_INSTRUCTION = """
+## Task
+{task}
+
+## Previous Plan
+{prev_plan}
+
+
+Given the above task and the previous plan, please re-plan and generate a new plan. DO IGNORE the previous plan and start from scratch.
+
+"""
+
 SOLVER_PROMPT = """\
 You are an AI agent who solves a problem with my assistance. I will provide step-by-step plans(Plan) and evidences(#E) that could be helpful.
 Your task is to briefly summarize each step, then make a short final conclusion for your task.
