@@ -21,7 +21,7 @@ from .rewoo_prompt import (
     QUESTION_REWORD_INSTRUCTION,
     COMMONSENSE_INSTRUCTION
 )
-from .utils import extract_content
+from .utils import extract_content, remove_think_cot
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -33,16 +33,23 @@ OPENAI_API_BASE_URL = "https://api.lambda.ai/v1"
 
 if OPENAI_API_KEY:
     from langchain_openai import ChatOpenAI
-    model_id = "deepseek-r1-671b"
-    lite_model_id = "llama3.3-70b-instruct-fp8"
-    MODEL = ChatOpenAI(
-        model=model_id,
+    plan_model_id = "qwen3-32b-fp8"
+    common_model_id = "llama3.3-70b-instruct-fp8"
+    code_model_id = "qwen25-coder-32b-instruct"
+    PLAN_MODEL = ChatOpenAI(
+        model=plan_model_id,
         temperature=0.2,
         openai_api_key=OPENAI_API_KEY,
         base_url=OPENAI_API_BASE_URL,
     )
-    LITE_MODEL = ChatOpenAI(
-        model=lite_model_id,
+    COMMON_MODEL = ChatOpenAI(
+        model=common_model_id,
+        temperature=0.2,
+        openai_api_key=OPENAI_API_KEY,
+        base_url=OPENAI_API_BASE_URL,
+    )
+    CODE_MODEL = ChatOpenAI(
+        model=code_model_id,
         temperature=0.2,
         openai_api_key=OPENAI_API_KEY,
         base_url=OPENAI_API_BASE_URL,
@@ -50,17 +57,12 @@ if OPENAI_API_KEY:
 else:
     from langchain_google_genai import ChatGoogleGenerativeAI
     model_id = "gemini-2.5-flash-preview-04-17"
-    lite_model_id = "gemini-2.0-flash-001"
-    MODEL = ChatGoogleGenerativeAI(
+    PLAN_MODEL = ChatGoogleGenerativeAI(
         model=model_id,
         temperature=0.2,
         google_api_key=GOOGLE_API_KEY
     )
-    LITE_MODEL = ChatGoogleGenerativeAI(
-        model=lite_model_id,
-        temperature=0.2,
-        google_api_key=GOOGLE_API_KEY
-    )
+    COMMON_MODEL = CODE_MODEL = PLAN_MODEL
 
 if os.getenv("RERANKER_SERVER_HOST_IP") and os.getenv("RERANKER_SERVER_PORT"):
     RERANKER_TYPE = "local"
@@ -150,7 +152,7 @@ def master(state: ReWOOState) -> Command[Literal["plan", "search", "code", "solv
         )
     if tool == "LLM":
         prompt = COMMONSENSE_INSTRUCTION.format(question=tool_input)
-        response = MODEL.invoke([HumanMessage(prompt)])
+        response = COMMON_MODEL.invoke([HumanMessage(prompt)])
         response = response.content.strip()
         result = extract_content(response, "answer")
         # Time to replan/reflection/re-search
@@ -173,9 +175,10 @@ def plan(state: ReWOOState) -> Command[Literal["master"]]:
         prompt = REPLAN_INSTRUCTION.format(
             task=task, prev_plan=state["plan_string"])
 
-    result = MODEL.invoke(
+    result = PLAN_MODEL.invoke(
         [SystemMessage(PLAN_SYSTEM_PROMPT), HumanMessage(prompt)])
-
+    
+    result.content = remove_think_cot(result.content)
     print("plan", result.content)
 
     # Find all matches in the sample text
@@ -247,7 +250,7 @@ async def search(state: ReWOOState) -> Command[Literal["master"]]:
     ]
 
     print("Generating search summary...")
-    ai_message = MODEL.invoke(summary_messages)
+    ai_message = COMMON_MODEL.invoke(summary_messages)
     response = ai_message.content.strip()
     result = extract_content(response, "answer")
 
@@ -272,7 +275,7 @@ async def search(state: ReWOOState) -> Command[Literal["master"]]:
 
 def code(state: ReWOOState) -> Command[Literal["master"]]:
     query = state["search_query"]
-    ai_message = MODEL.invoke([
+    ai_message = CODE_MODEL.invoke([
         SystemMessage(CODE_SYSTEM_PROMPT),
         HumanMessage(CODE_INSTRUCTION.format(task=query))
     ])
@@ -306,7 +309,7 @@ def solve(state: ReWOOState) -> Command[Literal["master"]]:
             step_name = step_name.replace(k, v)
         plan += f"Plan: {step_plan}\n{step_name} = {tool}[{tool_input}]"
     prompt = SOLVER_PROMPT.format(plan=plan, task=state["task"])
-    result = MODEL.invoke(prompt)
+    result = COMMON_MODEL.invoke(prompt)
 
     return Command(
         goto="master",
@@ -316,7 +319,7 @@ def solve(state: ReWOOState) -> Command[Literal["master"]]:
 
 def reword_tool_input(tool_input):
     prompt = QUESTION_REWORD_INSTRUCTION.format(tool_input=tool_input)
-    response = LITE_MODEL.invoke(prompt)
+    response = COMMON_MODEL.invoke(prompt)
     return extract_content(response.content.strip(), "reworded_query")
 
 
