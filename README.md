@@ -63,7 +63,26 @@ cd openprobe_dev
 pip install -e .
 ```
 
-### Run
+### Run Options
+
+#### 1. Using the Test Script
 ```bash
 python test_deepsearch.py
+```
+
+#### 2. Using the Command Line Interface (CLI)
+The CLI provides a convenient way to interact with the DeepSearch system:
+
+```bash
+# Run a search query
+python -m src.deepsearch.cli search "What is the current population of Tokyo?"
+
+# Run with custom replan iterations
+python -m src.deepsearch.cli search --max-replan 2 "Who won the most recent Olympic games?"
+
+# Run in interactive mode
+python -m src.deepsearch.cli search --interactive
+
+# Show version information
+python -m src.deepsearch.cli version
 ```
