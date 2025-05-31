@@ -13,13 +13,8 @@ import pandas as pd
 from datasets import Dataset
 from dotenv import load_dotenv
 from tqdm import tqdm
-
-from langchain_core.messages import HumanMessage
-from deepsearch import (
-    graph,
-    extract_content,
-    MULTIHOP_QA_INSTRUCTION
-)
+from deepsearch.utils import extract_content
+from deepsearch.rewoo_graph import graph
 
 load_dotenv()
 
@@ -84,39 +79,34 @@ def run_with_timeout(func, timeout):
 
 async def answer_single_question(example, answers_file):
     augmented_question = example["question"]
-    prompt = MULTIHOP_QA_INSTRUCTION.format(
-        question=augmented_question)
 
     TIMEOUT_SECONDS = 300  # 5 minutes timeout
 
     async def get_agent_response():
         res = await graph.ainvoke({
-        #res = await graph.ainvoke({
-            "messages": [HumanMessage(prompt)],
-            "current_iter": 0,
-            "max_iter": 5,
-            "search_query": "",
-            "search_summary": "",
-            "answer": "",
-            "plan_goal": "",
-            "plan_result": [],
-            "plan_query_index": -1,
+            "task": augmented_question,
+            "plan_string": None,
+            "steps": [],
+            "results": {},
+            "result": None,
+            "intermediate_result": None,
+            "search_query": None,
             "needs_replan": False,
-            "previous_plan": [],
-            "reflection": "",
-            },
-            {"recursion_limit": 40}
-        )
+            "replan_iter": 0,
+            "max_replan_iter": 1
+        }, {"recursion_limit": 30})
 
-        response = res["messages"][-1].content
+        print(res)
+        print(res["plan_string"])
+        print(res["results"])
+
+        response = res["result"]
         answer = extract_content(response, "answer")
         if answer is None:
-            answer = "Failed without an answer!"
+             answer = "Failed without an answer!"
         return answer
-
     try:
         answer = await asyncio.wait_for(get_agent_response(), timeout=TIMEOUT_SECONDS)
-        #answer = run_with_timeout(get_agent_response, TIMEOUT_SECONDS)
     except Exception as e:
         print("Error on ", augmented_question, e)
         answer = "Exception occurred"
