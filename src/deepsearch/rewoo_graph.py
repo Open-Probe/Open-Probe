@@ -4,7 +4,6 @@ from typing import Annotated, Sequence, TypedDict, List, Literal
 
 from langchain_experimental.utilities import PythonREPL
 from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import END, START, StateGraph, add_messages
 from langgraph.types import Command
 
@@ -17,22 +16,56 @@ from .rewoo_prompt import (
     SUMMARY_INSTRUCTION,
     QA_PROMPT,
     CODE_SYSTEM_PROMPT,
-    CODE_INSTRUCTION
+    CODE_INSTRUCTION,
+    REPLAN_INSTRUCTION,
+    QUESTION_REWORD_INSTRUCTION,
+    COMMONSENSE_INSTRUCTION
 )
 from .utils import extract_content
+from dotenv import load_dotenv
+
+load_dotenv()
 
 WEB_SEARCH_API_KEY = os.getenv("WEB_SEARCH_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-MODEL = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash-preview-04-17",
-    temperature=0.2,
-    google_api_key=GOOGLE_API_KEY
-)
-LITE_MODEL = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash-001",
-    temperature=0.2,
-    google_api_key=GOOGLE_API_KEY
-)
+OPENAI_API_KEY = os.getenv("LAMBDA_API_KEY")
+OPENAI_API_BASE_URL = "https://api.lambda.ai/v1"
+
+if OPENAI_API_KEY:
+    from langchain_openai import ChatOpenAI
+    model_id = "deepseek-r1-671b"
+    lite_model_id = "llama3.3-70b-instruct-fp8"
+    MODEL = ChatOpenAI(
+        model=model_id,
+        temperature=0.2,
+        openai_api_key=OPENAI_API_KEY,
+        base_url=OPENAI_API_BASE_URL,
+    )
+    LITE_MODEL = ChatOpenAI(
+        model=lite_model_id,
+        temperature=0.2,
+        openai_api_key=OPENAI_API_KEY,
+        base_url=OPENAI_API_BASE_URL,
+    )
+else:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    model_id = "gemini-2.5-flash-preview-04-17"
+    lite_model_id = "gemini-2.0-flash-001"
+    MODEL = ChatGoogleGenerativeAI(
+        model=model_id,
+        temperature=0.2,
+        google_api_key=GOOGLE_API_KEY
+    )
+    LITE_MODEL = ChatGoogleGenerativeAI(
+        model=lite_model_id,
+        temperature=0.2,
+        google_api_key=GOOGLE_API_KEY
+    )
+
+if os.getenv("RERANKER_SERVER_HOST_IP") and os.getenv("RERANKER_SERVER_PORT"):
+    RERANKER_TYPE = "local"
+else:
+    RERANKER_TYPE = "jina"
 
 # Regex to match expressions of the form E#... = ...[...]
 REGEX_PATTERN = r"Plan:\s*(.+)\s*(#E\d+)\s*=\s*(\w+)\s*\[([^\]]+)\]"
@@ -55,9 +88,10 @@ def python_repl_tool(code):
     you should print it out with `print(...)`. This is visible to the user."""
     try:
         result = PY_REPL.run(code)
+        return result
     except BaseException as e:
-        return f"Failed to execute. Error: {repr(e)}"
-    return result
+        print(f"Failed to execute. Error: {repr(e)}")
+        return None
 
 
 class ReWOOState(TypedDict):
@@ -69,9 +103,16 @@ class ReWOOState(TypedDict):
     result: str
     intermediate_result: str
     search_query: str
+    needs_replan: bool
+    replan_iter: int
+    max_replan_iter: int
 
 
 def master(state: ReWOOState) -> Command[Literal["plan", "search", "code", "solve", END]]:
+    if state["needs_replan"] and state["replan_iter"] < state["max_replan_iter"]:
+        return Command(
+            goto="plan"
+        )
     if state["result"] is not None:
         return Command(
             goto=END
@@ -89,14 +130,18 @@ def master(state: ReWOOState) -> Command[Literal["plan", "search", "code", "solv
     _, step_name, tool, tool_input = state["steps"][current_step]
     result_dict = state["results"]
 
+    print("\n======result_dict=======\n", result_dict)
+
     # Replace all occurrences of that k in the current tool_input string with v
     for k, v in result_dict.items():
         tool_input = tool_input.replace(k, v)
 
+    print("\n======tool_input=======\n", tool_input)
     if tool == "Search":
+        searchable_query = reword_tool_input(tool_input)
         return Command(
             goto="search",
-            update={"search_query": tool_input}
+            update={"search_query": searchable_query}
         )
     if tool == "Code":
         return Command(
@@ -104,12 +149,14 @@ def master(state: ReWOOState) -> Command[Literal["plan", "search", "code", "solv
             update={"search_query": tool_input}
         )
     if tool == "LLM":
-        response = MODEL.invoke(tool_input)
-        result = response.content.strip()
+        prompt = COMMONSENSE_INSTRUCTION.format(question=tool_input)
+        response = MODEL.invoke([HumanMessage(prompt)])
+        response = response.content.strip()
+        result = extract_content(response, "answer")
+        # Time to replan/reflection/re-search
+        if result is None:
+            result = response
         result_dict[step_name] = str(result)
-        # print("master LLM", len(result_dict), result_dict)
-
-    # TODO: handle unsucessful plan
 
     return Command(
         goto="master",
@@ -119,16 +166,37 @@ def master(state: ReWOOState) -> Command[Literal["plan", "search", "code", "solv
 
 def plan(state: ReWOOState) -> Command[Literal["master"]]:
     task = state["task"]
-    prompt = QA_PROMPT.format(task=task)
+
+    if not state["needs_replan"]:
+        prompt = QA_PROMPT.format(task=task)
+    else:
+        prompt = REPLAN_INSTRUCTION.format(
+            task=task, prev_plan=state["plan_string"])
+
     result = MODEL.invoke(
         [SystemMessage(PLAN_SYSTEM_PROMPT), HumanMessage(prompt)])
+
+    print("plan", result.content)
 
     # Find all matches in the sample text
     matches = re.findall(REGEX_PATTERN, result.content)
 
+    update_dict = {"steps": matches, "plan_string": result.content}
+    if state["needs_replan"]:
+        # Clean old states
+        extra_dict = {
+            "needs_replan": False,
+            "results": {},
+            "result": None,
+            "intermediate_result": None,
+            "search_query": None,
+            "replan_iter": state["replan_iter"] + 1
+        }
+        update_dict.update(extra_dict)
+
     return Command(
         goto="master",
-        update={"steps": matches, "plan_string": result.content}
+        update=update_dict
     )
 
 
@@ -156,7 +224,7 @@ async def search(state: ReWOOState) -> Command[Literal["master"]]:
     print("Getting sources from search API")
     sources = serp_search_client.get_sources(query)
 
-    source_processor = SourceProcessor(reranker="jina")
+    source_processor = SourceProcessor(reranker=RERANKER_TYPE)
 
     print("Processing sources and building context...")
     max_sources = 2
@@ -179,9 +247,15 @@ async def search(state: ReWOOState) -> Command[Literal["master"]]:
     ]
 
     print("Generating search summary...")
-    ai_message = LITE_MODEL.invoke(summary_messages)
+    ai_message = MODEL.invoke(summary_messages)
     response = ai_message.content.strip()
     result = extract_content(response, "answer")
+
+    # Time to replan/reflection/re-search
+    if result is None:
+        result = response
+        print("\n======Not satisfactory result=======\n", result)
+        state["needs_replan"] = True
 
     print("Search completed, returning to master")
 
@@ -192,7 +266,7 @@ async def search(state: ReWOOState) -> Command[Literal["master"]]:
 
     return Command(
         goto="master",
-        update={"results": result_dict}
+        update={"results": result_dict, "needs_replan": state["needs_replan"]}
     )
 
 
@@ -207,6 +281,11 @@ def code(state: ReWOOState) -> Command[Literal["master"]]:
     print(f"Code solution:\n{code_solution}")
     result = python_repl_tool(code_solution)
 
+    # Time to replan/reflection/re-code
+    if result is None:
+        result = "I don't know."
+        state["needs_replan"] = True
+
     current_step = len(state["results"])
     _, step_name, _, _ = state["steps"][current_step]
     result_dict = state["results"]
@@ -214,7 +293,7 @@ def code(state: ReWOOState) -> Command[Literal["master"]]:
 
     return Command(
         goto="master",
-        update={"results": result_dict}
+        update={"results": result_dict, "needs_replan": state["needs_replan"]}
     )
 
 
@@ -233,6 +312,12 @@ def solve(state: ReWOOState) -> Command[Literal["master"]]:
         goto="master",
         update={"result": result.content}
     )
+
+
+def reword_tool_input(tool_input):
+    prompt = QUESTION_REWORD_INSTRUCTION.format(tool_input=tool_input)
+    response = LITE_MODEL.invoke(prompt)
+    return extract_content(response.content.strip(), "reworded_query")
 
 
 builder = StateGraph(ReWOOState)

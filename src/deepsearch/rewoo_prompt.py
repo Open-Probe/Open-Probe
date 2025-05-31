@@ -41,6 +41,27 @@ Plan: Extract the final result from the calculation.
 
 """
 
+REPLAN_INSTRUCTION = """
+## Task
+{task}
+
+## Previous Plan
+{prev_plan}
+
+
+Given the above task and the previous plan, please re-plan and generate a new plan. DO IGNORE the previous plan and start from scratch.
+
+"""
+
+COMMONSENSE_INSTRUCTION = """\
+You are a commonsense agent. You can answer the given question with logical reasoning, basic math and commonsense knowledge.
+Finally, provide your answer in the format <answer>YOUR_ANSWER</answer>.
+
+## Question
+{question}
+
+"""
+
 SOLVER_PROMPT = """\
 You are an AI agent who solves a problem with my assistance. I will provide step-by-step plans(Plan) and evidences(#E) that could be helpful.
 Your task is to briefly summarize each step, then make a short final conclusion for your task.
@@ -113,13 +134,34 @@ population_india_2022 = 1.417 * 10**9 # 1.417 billion
 # Calculate combined population
 combined_population_2022 = population_china_2022 + population_india_2022
 # Print the result
-print(f"The combined population of China and India in 2022 is {combined_population_2022} people.")
+print(f"The combined population of China and India in 2022 is {{combined_population_2022}} people.")
 ```
 
 """
 
 CODE_INSTRUCTION = """\
 Task: {task}
+
 Code:
 
+"""
+
+QUESTION_REWORD_INSTRUCTION = """
+You are a helpful assistant that rephrases text into a clear, searchable question suitable for web search.
+
+**Instructions:**
+1.  **Analyze the input:** Determine if the provided text is already a clear and searchable question.
+2.  **Reword if necessary:** If the input is unclear, fragmented, or not in the form of a question, rephrase it to be a concise and effective search query.
+3.  **Return as is:** If the input is already a good search query, return it unchanged.
+4.  **Formatting:** The reworded or original query must be delimited by `<reworded_query>...</reworded_query>`.
+
+Example:
+Input: What is the capital of France?
+Output: <reworded_query>What is the capital of France?</reworded_query>
+
+Input: population of China
+Output: <reworded_query>What is the population of China?</reworded_query>
+
+Input: {tool_input}
+Output:
 """
