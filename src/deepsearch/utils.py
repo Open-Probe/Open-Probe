@@ -38,3 +38,8 @@ def extract_last_json_block(markdown_text):
     if not json_blocks:
         return None
     return json_blocks[-1].strip()
+
+
+def remove_think_cot(input_str):
+    cleaned_str = re.sub(r"<think>.*?</think>\s*", "", input_str, flags=re.DOTALL)
+    return cleaned_str.strip()
