@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from .utils import extract_content
-from .rewoo_graph import graph
+from .graph import graph
 
 
 async def solve(question: str, max_replan_iter: int = 1):
@@ -119,7 +119,7 @@ def check_environment():
     return True
 
 
-def main():
+async def main():
     """Main entry point for the CLI."""
     parser = argparse.ArgumentParser(description="OpenProbe DeepSearch CLI")
     
@@ -151,12 +151,9 @@ def main():
     # Handle commands with proper asyncio cleanup
     if args.command == "search":
         if args.interactive:
-            run_async_with_cleanup(interactive_mode())
+            await interactive_mode()
         elif args.query:
-            async def single_query():
-                await solve(args.query, args.max_replan)
-                await asyncio.sleep(0.1)  # Allow transports to close
-            run_async_with_cleanup(single_query())
+            await solve(args.query, args.max_replan)
         else:
             search_parser.print_help()
     
@@ -164,5 +161,15 @@ def main():
         print("OpenProbe DeepSearch v0.1.0")
 
 
-if __name__ == "__main__":
-    main() 
+if __name__ == "__main__": 
+    loop = asyncio.get_event_loop()
+    try:
+        loop.run_until_complete(main())
+    finally:
+        # Cancel all pending tasks and close loop properly
+        pending = asyncio.all_tasks(loop=loop)
+        for task in pending:
+            task.cancel()
+        if pending:
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        loop.close()

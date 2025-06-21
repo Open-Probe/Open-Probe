@@ -1,6 +1,6 @@
 import asyncio
 from deepsearch.utils import extract_content
-from deepsearch.rewoo_graph import graph
+from deepsearch.graph import graph
 
 
 async def solve(question):

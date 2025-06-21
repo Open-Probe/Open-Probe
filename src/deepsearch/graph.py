@@ -10,7 +10,7 @@ from langgraph.types import Command
 from .web_search.context_builder import build_context
 from .web_search.serp_search import create_search_api
 from .web_search.source_processor import SourceProcessor
-from .rewoo_prompt import (
+from .prompt import (
     PLAN_SYSTEM_PROMPT,
     SOLVER_PROMPT,
     SUMMARY_INSTRUCTION,
