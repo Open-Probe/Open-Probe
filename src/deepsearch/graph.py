@@ -1,339 +1,221 @@
 import os
-from typing import Literal
+import re
+from typing import Annotated, Sequence, TypedDict, List, Literal
 
-"""
-DeepSearch Graph Implementation
-
-This module defines the LangGraph workflow for DeepSearch, with capabilities for:
-- Multi-step planning for complex queries
-- Web search based on generated plans
-- Adaptive replanning when initial searches are insufficient
-- Reflection on previous plans to improve search strategy
-
-The graph workflow includes these main nodes:
-- master: Central decision-making node for routing
-- plan: Generates search plans from queries
-- search: Executes web searches and processes results
-
-The replanning feature allows the model to:
-1. Analyze why previous searches were insufficient
-2. Reflect on what information is missing
-3. Generate improved search queries
-4. Continue the search process with better strategy
-"""
-
-from dotenv import load_dotenv
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langgraph.graph import END, START, StateGraph
+from langchain_experimental.utilities import PythonREPL
+from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage
+from langgraph.graph import END, START, StateGraph, add_messages
 from langgraph.types import Command
 
-from .prompt import (
-    MASTER_SYSTEM_PROMPT,
-    PLANNING_INSTRUCTION,
-    REPLAN_INSTRUCTION,
-    SUMMARY_SYSTEM_PROMPT,
-    ANSWER_OR_REPLAN_PROMPT
-)
-from .state import AgentState
-from .utils import (
-    extract_content,
-    extract_last_json_block,
-    extract_plan_result,
-)
 from .web_search.context_builder import build_context
 from .web_search.serp_search import create_search_api
 from .web_search.source_processor import SourceProcessor
+from .rewoo_prompt import (
+    PLAN_SYSTEM_PROMPT,
+    SOLVER_PROMPT,
+    SUMMARY_INSTRUCTION,
+    QA_PROMPT,
+    CODE_SYSTEM_PROMPT,
+    CODE_INSTRUCTION,
+    REPLAN_INSTRUCTION,
+    QUESTION_REWORD_INSTRUCTION,
+    COMMONSENSE_INSTRUCTION
+)
+from .utils import extract_content, remove_think_cot
+from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv()
+
 WEB_SEARCH_API_KEY = os.getenv("WEB_SEARCH_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-openai_api_key = os.getenv("LAMBDA_API_KEY")
-openai_api_base = "https://api.lambda.ai/v1"
-openai_model = "deepseek-r1-671b"
-# Initialize models
-if openai_api_key:
+OPENAI_API_KEY = os.getenv("LAMBDA_API_KEY")
+OPENAI_API_BASE_URL = "https://api.lambda.ai/v1"
+
+if OPENAI_API_KEY:
     from langchain_openai import ChatOpenAI
-    print("Using LAMBDA_API")
-    MODEL = ChatOpenAI(
-        model=openai_model,
+    plan_model_id = "qwen3-32b-fp8"
+    common_model_id = "llama3.3-70b-instruct-fp8"
+    code_model_id = "qwen25-coder-32b-instruct"
+    PLAN_MODEL = ChatOpenAI(
+        model=plan_model_id,
         temperature=0.2,
-        openai_api_key=openai_api_key,
-        base_url=openai_api_base,
+        openai_api_key=OPENAI_API_KEY,
+        base_url=OPENAI_API_BASE_URL,
+    )
+    COMMON_MODEL = ChatOpenAI(
+        model=common_model_id,
+        temperature=0.2,
+        openai_api_key=OPENAI_API_KEY,
+        base_url=OPENAI_API_BASE_URL,
+    )
+    CODE_MODEL = ChatOpenAI(
+        model=code_model_id,
+        temperature=0.2,
+        openai_api_key=OPENAI_API_KEY,
+        base_url=OPENAI_API_BASE_URL,
     )
 else:
-    MODEL = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash-preview-04-17",
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    model_id = "gemini-2.5-flash-preview-04-17"
+    PLAN_MODEL = ChatGoogleGenerativeAI(
+        model=model_id,
         temperature=0.2,
         google_api_key=GOOGLE_API_KEY
     )
+    COMMON_MODEL = CODE_MODEL = PLAN_MODEL
 
-def extract_reflection(text: str) -> str:
-    """Extract reflection content from text."""
-    return extract_content(text, "reflection")
+if os.getenv("RERANKER_SERVER_HOST_IP") and os.getenv("RERANKER_SERVER_PORT"):
+    RERANKER_TYPE = "local"
+else:
+    RERANKER_TYPE = "jina"
 
-def decide_action(state: AgentState) -> Command[Literal["search", "master"]]:
-    """
-    Determine the next action based on the current state.
-    
-    Args:
-        state: The current agent state
-        
-    Returns:
-        Command to navigate to the next node in the graph
-    """
-    print("\n==== DECIDE_ACTION ====")
-    response = state["messages"][-1].content
-    ai_message = state["messages"][-1]
-    print(f"Current response: {response}")
-    print(f"Plan query index: {state['plan_query_index']}")
-    
-    # Handle plan-based search queries
-    if state["plan_query_index"] != -1:
-        plan_list = state["plan_result"]
-        
-        if "<plan_result>" in response or "<search_result>" in response or "<reflection>" in response:
-            query = plan_list[state["plan_query_index"]]
-            print(f"Selected query from plan: {query}")
-            ai_message = AIMessage(f"<search_query>{query}</search_query>")
-            
-            # Update plan query index
-            state["plan_query_index"] += 1
-            if state["plan_query_index"] == len(plan_list):
-                state["plan_query_index"] = -1
-                print("Reached end of plan queries")
-                
-            state["search_query"] = query
-            return Command(
-                goto="search",
-                update={
-                    "messages": [ai_message],
-                    "search_query": state["search_query"],
-                    "plan_query_index": state["plan_query_index"]
-                }
-            )
-    
-    # Handle completed search with results
-    elif state["plan_query_index"] == -1 and "<search_result>" in response:
-        print("Search completed, moving to master")
-        state["search_summary"] = response
-        ai_message = AIMessage(ANSWER_OR_REPLAN_PROMPT)
+# Regex to match expressions of the form E#... = ...[...]
+REGEX_PATTERN = r"Plan:\s*(.+)\s*(#E\d+)\s*=\s*(\w+)\s*\[([^\]]+)\]"
 
+# Warning: This executes code locally, which can be unsafe when not sandboxed
+PY_REPL = PythonREPL()
+
+
+def extract_last_python_block(input_str):
+    # Find all code blocks that might contain python
+    py_blocks = re.findall(r'```(?:python)?\s*([\s\S]*?)```', input_str)
+
+    if not py_blocks:
+        return None
+    return py_blocks[-1].strip()
+
+
+def python_repl_tool(code):
+    """Use this to execute python code. If you want to see the output of a value,
+    you should print it out with `print(...)`. This is visible to the user."""
+    try:
+        result = PY_REPL.run(code)
+        return result
+    except BaseException as e:
+        print(f"Failed to execute. Error: {repr(e)}")
+        return None
+
+
+class ReWOOState(TypedDict):
+    messages: Annotated[Sequence[AnyMessage], add_messages]
+    task: str
+    plan_string: str
+    steps: List
+    results: dict
+    result: str
+    intermediate_result: str
+    search_query: str
+    needs_replan: bool
+    replan_iter: int
+    max_replan_iter: int
+
+
+def master(state: ReWOOState) -> Command[Literal["plan", "search", "code", "solve", END]]:
+    if state["needs_replan"] and state["replan_iter"] < state["max_replan_iter"]:
         return Command(
-            goto="master",
-            update={
-                "messages": [ai_message], 
-                "search_summary": state["search_summary"]
-            }
+            goto="plan"
         )
-  
-
-def master(state: AgentState) -> Command[Literal["plan", "search", END]]:
-    """
-    Main decision-making node that processes messages and decides next steps.
-    
-    Args:
-        state: The current agent state
-        
-    Returns:
-        Command to navigate to the appropriate node
-    """
-    print("\n==== MASTER NODE ====")
-    messages = [SystemMessage(MASTER_SYSTEM_PROMPT)] + state["messages"]
-    print(f"Last message: {state['messages'][-1].content}")
-    
-    # Check if we need to decide an action based on previous response
-    if "<plan_result>" in messages[-1].content or "<search_result>" in messages[-1].content:
-        print("Inside Decide Action")
-        return decide_action(state)
-    
-    # Generate a new response
-    ai_message = MODEL.invoke(
-        messages, stop=["</plan>", "</plan_result>", "</search_query>", "</answer>", "</replan>"])
-    response = ai_message.content
-    
-    # Handle case where content is a list of candidates
-    if isinstance(response, list):
-        print(f"Response is a list: {response}")
-        response = response[-1]
-        ai_message.content = response
-
-    print(f"Generated response: {response}...")
-
-    # Process the response based on tags
-    if "<answer>" in response:
-        print("Found answer tag")
-        response += "</answer>"
-        answer = extract_content(response, "answer")
-        print(f"Extracted answer: {answer}...")
-        state["answer"] = answer
-        ai_message.content = response
+    if state["result"] is not None:
         return Command(
-            goto=END,
-            update={"messages": [ai_message], "answer": state["answer"]}
+            goto=END
         )
-    elif "<plan>" in response:
-        print("Found plan tag")
-        response += "</plan>"
-        ai_message.content = response
-        state["plan_goal"] = extract_content(response, "plan")
-        # Initialize replan values to defaults
-        state["needs_replan"] = False
-        state["previous_plan"] = []
-        state["reflection"] = ""
-        state["replan_count"] = 0
+    if len(state["steps"]) == 0:
         return Command(
-            goto="plan",
-            update={
-                "messages": [ai_message], 
-                "plan_goal": state["plan_goal"],
-                "needs_replan": False,
-                "previous_plan": [],
-                "reflection": "",
-                "replan_count": 0
-            }
+            goto="plan"
         )
-    elif "<replan>" in response:
-        print("Found replan tag")
-        
-        # Check if we've reached the replan limit
-        if (openai_api_key and openai_model == "deepseek-r1-671b") or state.get("replan_count", 0) >= 2:
-            print("Replan limit reached (2), forcing answer")
-            # Force the model to answer with what it has
-            ai_message = AIMessage(
-                " ".join([
-                    "You've already replanned twice, which is the maximum allowed.",
-                    "Please provide your best answer with the information you have gathered so far."
-                ])
-            )
-            return Command(
-                goto="master",
-                update={"messages": [ai_message]}
-            )
-        
-        response += "</replan>"
-        ai_message.content = response
-        # Store the current plan as previous plan
-        state["previous_plan"] = state["plan_result"]
-        state["needs_replan"] = True
-        # Keep the same plan goal but increment replan count
-        replan_count = state.get("replan_count", 0) + 1
-        print(f"Replanning attempt {replan_count}/2")
-        
+    if len(state["results"]) == len(state["steps"]):
         return Command(
-            goto="plan",
-            update={
-                "messages": [ai_message],
-                "previous_plan": state["plan_result"],
-                "needs_replan": True,
-                "replan_count": replan_count
-            }
+            goto="solve"
         )
-    else:
-        print("No specific tags found, deciding action")
-        return decide_action(state)
 
+    current_step = len(state["results"])
+    _, step_name, tool, tool_input = state["steps"][current_step]
+    result_dict = state["results"]
 
-def plan(state: AgentState) -> Command[Literal["master"]]:
-    """
-    Generate a plan for answering the query.
-    
-    Args:
-        state: The current agent state
-        
-    Returns:
-        Command to navigate back to the master node with the plan
-    """
-    print("\n==== PLAN NODE ====")
-    
-    # Check if we're replanning or doing initial planning
-    if state["needs_replan"]:
-        replan_count = state.get("replan_count", 1)
-        print(f"Replanning attempt {replan_count}/2")
-        
-        # Format previous plan for the prompt
-        previous_plan_str = "\n".join([f"{i+1}. {query}" for i, query in enumerate(state["previous_plan"])])
-        
-        # Use the replan instruction
-        prompt = REPLAN_INSTRUCTION.format(
-            question=state["plan_goal"],
-            previous_plan=previous_plan_str,
-            search_summary=state["search_summary"]
+    print("\n======RESULT DICTIONARY=======\n", result_dict)
+
+    # Replace all occurrences of that k in the current tool_input string with v
+    for k, v in result_dict.items():
+        tool_input = tool_input.replace(k, v)
+
+    if tool == "Search":
+        searchable_query = reword_tool_input(tool_input)
+        return Command(
+            goto="search",
+            update={"search_query": searchable_query}
         )
-        
-        message = [HumanMessage(prompt)]
-        ai_message = MODEL.invoke(message)
-        response = ai_message.content.strip()
-        
-        # Extract reflection if present
-        if "<reflection>" in response:
-            reflection = extract_reflection(response)
-            state["reflection"] = reflection
-            print(f"Reflection: {reflection}")
-        
-        # Extract the new plan
-        json_str = extract_last_json_block(response)
-        plan_list = extract_plan_result(json_str)
-        print(f"New plan created: {plan_list}")
-        
-        # Update state with the new plan
-        state["plan_result"] = plan_list
-        state["plan_query_index"] = 0
-        state["needs_replan"] = False
-        
-        # Create response message with reflection and replan count
-        ai_message = AIMessage(
-            f"<reflection>\nReplan attempt {replan_count}/2: {state['reflection']}\n</reflection>\n\n<plan_result>\n{response}\n</plan_result>"
+    if tool == "Code":
+        return Command(
+            goto="code",
+            update={"search_query": tool_input}
         )
-    else:
-        print("Creating initial plan")
-        plan_goal = state["plan_goal"]
-        print(f"Planning for goal: {plan_goal}")
-        
-        prompt = PLANNING_INSTRUCTION.format(question=plan_goal)
-        message = [HumanMessage(prompt)]
-        
-        ai_message = MODEL.invoke(message)
-        response = ai_message.content.strip()
-        
-        json_str = extract_last_json_block(response)
-        plan_list = extract_plan_result(json_str)
-        print(f"Plan created: {plan_list}")
+    if tool == "LLM":
+        prompt = COMMONSENSE_INSTRUCTION.format(question=tool_input)
+        response = COMMON_MODEL.invoke([HumanMessage(prompt)])
+        response = response.content.strip()
+        result = extract_content(response, "answer")
+        # Time to replan/reflection/re-search
+        if result is None:
+            result = response
+        result_dict[step_name] = str(result)
 
-        state["plan_result"] = plan_list
-        state["plan_query_index"] = 0
-        state["replan_count"] = 0
-        
-        ai_message = AIMessage(f"<plan_result>\n{response}\n</plan_result>")
-    
     return Command(
         goto="master",
-        update={
-            "messages": [ai_message], 
-            "plan_result": state["plan_result"],
-            "plan_query_index": state["plan_query_index"],
-            "needs_replan": state["needs_replan"],
-            "reflection": state.get("reflection", ""),
-            "replan_count": state.get("replan_count", 0)
-        }
+        update={"results": result_dict}
     )
 
 
-async def search(state: AgentState) -> Command[Literal["master"]]:
+def plan(state: ReWOOState) -> Command[Literal["master"]]:
+    task = state["task"]
+
+    if not state["needs_replan"]:
+        prompt = QA_PROMPT.format(task=task)
+    else:
+        prompt = REPLAN_INSTRUCTION.format(
+            task=task, prev_plan=state["plan_string"])
+
+    result = PLAN_MODEL.invoke(
+        [SystemMessage(PLAN_SYSTEM_PROMPT), HumanMessage(prompt)])
+    
+    result.content = remove_think_cot(result.content)
+    print("plan", result.content)
+
+    # Find all matches in the sample text
+    matches = re.findall(REGEX_PATTERN, result.content)
+
+    update_dict = {"steps": matches, "plan_string": result.content}
+    if state["needs_replan"]:
+        # Clean old states
+        extra_dict = {
+            "needs_replan": False,
+            "results": {},
+            "result": None,
+            "intermediate_result": None,
+            "search_query": None,
+            "replan_iter": state["replan_iter"] + 1
+        }
+        update_dict.update(extra_dict)
+
+    return Command(
+        goto="master",
+        update=update_dict
+    )
+
+
+async def search(state: ReWOOState) -> Command[Literal["master"]]:
     """
     Perform web search based on the query and process the results.
-    
+
     Args:
         state: The current agent state
-        
+
     Returns:
         Command to navigate back to the master node with search results
     """
     print("\n==== SEARCH NODE ====")
     query = state["search_query"]
     print(f"Searching for: {query}")
-    
+
     # Initialize search client
     serp_search_client = create_search_api(
         search_provider="serper",
@@ -344,14 +226,8 @@ async def search(state: AgentState) -> Command[Literal["master"]]:
     print("Getting sources from search API")
     sources = serp_search_client.get_sources(query)
 
-    
-    reranker_ip = os.getenv("RERANKER_SERVER_HOST_IP")
-    reranker_port = os.getenv("RERANKER_SERVER_PORT")
-    if reranker_ip and reranker_port:
-        source_processor = SourceProcessor(reranker="local")
-    else:
-        source_processor = SourceProcessor(reranker="jina")
-    
+    source_processor = SourceProcessor(reranker=RERANKER_TYPE)
+
     print("Processing sources and building context...")
     max_sources = 2
     processed_sources = await source_processor.process_sources(
@@ -365,35 +241,93 @@ async def search(state: AgentState) -> Command[Literal["master"]]:
     context = build_context(processed_sources)
 
     # Generate summary of search results
+    prompt = SUMMARY_INSTRUCTION.format(
+        task=query, context=context
+    )
     summary_messages = [
-        SystemMessage(SUMMARY_SYSTEM_PROMPT),
-        HumanMessage(context)
+        HumanMessage(prompt)
     ]
-    
-    print("Generating search summary...")
-    ai_message = MODEL.invoke(summary_messages)
-    response = ai_message.content.strip()
-    state["search_summary"] = response
 
-    ai_message = AIMessage(f"<search_result>{response}</search_result>")
+    print("Generating search summary...")
+    ai_message = COMMON_MODEL.invoke(summary_messages)
+    response = ai_message.content.strip()
+    result = extract_content(response, "answer")
+
+    # Time to replan/reflection/re-search
+    if result is None:
+        result = response
+        print("\n======NOT SATISFACTORY RESULT=======\n", result)
+        state["needs_replan"] = True
+
     print("Search completed, returning to master")
-    
+
+    current_step = len(state["results"])
+    _, step_name, _, _ = state["steps"][current_step]
+    result_dict = state["results"]
+    result_dict[step_name] = result
+
     return Command(
         goto="master",
-        update={
-            "messages": [ai_message], 
-            "search_summary": state["search_summary"],
-            "current_iter": state["current_iter"] + 1
-        }
+        update={"results": result_dict, "needs_replan": state["needs_replan"]}
     )
 
 
-# Build the agent graph
-builder = StateGraph(AgentState)
+def code(state: ReWOOState) -> Command[Literal["master"]]:
+    query = state["search_query"]
+    ai_message = CODE_MODEL.invoke([
+        SystemMessage(CODE_SYSTEM_PROMPT),
+        HumanMessage(CODE_INSTRUCTION.format(task=query))
+    ])
+
+    code_solution = extract_last_python_block(ai_message.content)
+    print(f"Code solution:\n{code_solution}")
+    result = python_repl_tool(code_solution)
+
+    # Time to replan/reflection/re-code
+    if result is None:
+        result = "I don't know."
+        state["needs_replan"] = True
+
+    current_step = len(state["results"])
+    _, step_name, _, _ = state["steps"][current_step]
+    result_dict = state["results"]
+    result_dict[step_name] = result
+
+    return Command(
+        goto="master",
+        update={"results": result_dict, "needs_replan": state["needs_replan"]}
+    )
+
+
+def solve(state: ReWOOState) -> Command[Literal["master"]]:
+    plan = ""
+    for step_plan, step_name, tool, tool_input in state["steps"]:
+        result_dict = state["results"]
+        for k, v in result_dict.items():
+            tool_input = tool_input.replace(k, v)
+            step_name = step_name.replace(k, v)
+        plan += f"Plan: {step_plan}\n{step_name} = {tool}[{tool_input}]"
+    prompt = SOLVER_PROMPT.format(plan=plan, task=state["task"])
+    result = COMMON_MODEL.invoke(prompt)
+
+    return Command(
+        goto="master",
+        update={"result": result.content}
+    )
+
+
+def reword_tool_input(tool_input):
+    prompt = QUESTION_REWORD_INSTRUCTION.format(tool_input=tool_input)
+    response = COMMON_MODEL.invoke(prompt)
+    return extract_content(response.content.strip(), "reworded_query")
+
+
+builder = StateGraph(ReWOOState)
 builder.add_node("master", master)
 builder.add_node("plan", plan)
 builder.add_node("search", search)
+builder.add_node("code", code)
+builder.add_node("solve", solve)
 builder.add_edge(START, "master")
 
-# Compile the graph
 graph = builder.compile()

@@ -80,12 +80,29 @@ async def interactive_mode():
                 continue
                 
             await solve(query)
+            # Add delay to allow transports to close properly
+            await asyncio.sleep(0.1)
             
         except KeyboardInterrupt:
             print("\nInterrupted by user. Exiting interactive mode.")
             break
         except Exception as e:
             print(f"❌ Error: {e}")
+
+
+def run_async_with_cleanup(coro):
+    """Run async coroutine with proper cleanup to prevent transport errors."""
+    loop = asyncio.get_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        # Cancel all pending tasks and close loop properly
+        pending = asyncio.all_tasks(loop=loop)
+        for task in pending:
+            task.cancel()
+        if pending:
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        loop.close()
 
 
 def check_environment():
@@ -131,12 +148,15 @@ def main():
     if not check_environment():
         return
     
-    # Handle commands
+    # Handle commands with proper asyncio cleanup
     if args.command == "search":
         if args.interactive:
-            asyncio.run(interactive_mode())
+            run_async_with_cleanup(interactive_mode())
         elif args.query:
-            asyncio.run(solve(args.query, args.max_replan))
+            async def single_query():
+                await solve(args.query, args.max_replan)
+                await asyncio.sleep(0.1)  # Allow transports to close
+            run_async_with_cleanup(single_query())
         else:
             search_parser.print_help()
     

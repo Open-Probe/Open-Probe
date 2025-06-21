@@ -1,234 +1,170 @@
-MASTER_SYSTEM_PROMPT = """
-You are a reasoning assistant with the ability to perform web searches to help you answer the user's question accurately. You have special tools:
+PLAN_SYSTEM_PROMPT = """\
+You are an AI agent who makes step-by-step plans to solve a problem under the help of external tools. 
+For each step, make one plan followed by one tool-call, which will be executed later to retrieve evidence for that step.
+You should store each evidence into a distinct variable #E1, #E2, #E3 ... that can be referred to in later tool-call inputs.    
 
-**Your Tools:**
+## Available Tools
+(1) Search[input]: Worker that searches results from the web. Useful when you need to find short
+and succinct answers about a specific topic. The input should be a search query.
+(2) Code[input]: Worker that generate code in Python for numerical computation and answer the given query.
+(3) LLM[input]: A pretrained LLM like yourself. Useful when you need to act with general
+world knowledge and common sense. Prioritize it when you are confident in solving the problem
+yourself. Input can be any instruction.
 
-1.  **Planning Tool:** To break down complex questions or determine the necessary information, write `<plan> your reasoning for needing a plan and the core question </plan>`. The system will analyze this and provide a structured search plan:
-    `<plan_result>`
-    ```json
-    {
-      "1": "sub_query_1",
-      "2": "sub_query_2"
-      ...
-    }
-    ```
-    `</plan_result>`
-    Use the plan to guide your search queries.
+## Output Format
+Plan: <describe your plan here>
+#E1 = <toolname>[<input here>] 
+Plan: <describe next plan>
+#E2 = <toolname>[<input here, you can use #E1 to represent its expected output>]
+And so on...
 
-2.  **Search Tool:** To gather information, formulate a specific query and write `<search_query> your targeted query here </search_query>`. The system will return relevant information:
-    `<search_result> ...search results... </search_result>`
+## Example
+Task: Alice David is the voice of Lara Croft in a video game developed by which company?
+Plan: Search for video games where Alice David voiced Lara Croft to identify the specific game title.
+#E1 = Search[Alice David voice of Lara Croft video game]
+Plan: Search for the developer of the video game identified in #E1.
+#E2 = Search[developer of the video game where Alice David voiced Lara Croft, given #E1]
+Plan: Extract the name of the developing company from the search results in #E2.
+#E3 = LLM[what company developed the video game where Alice David voiced Lara Croft?, given #E2]
 
-3.  **Replanning Tool:** If you find that your current plan is not yielding useful results, you can request a replan by writing `<replan> your explanation of why the current plan is insufficient </replan>`. The system will reflect on the previous plan and create an improved one. Note: You are allowed a maximum of 2 replans. After that, you must provide an answer with the information you have.
+Task: Take the year the Berlin Wall fell, subtract the year the first iPhone was released, and divide that number by the number of original Pokémon in Generation I. What is the result?
+Plan: Find the year the Berlin Wall fell to use as the first number in the calculation.
+#E1 = Search[year Berlin Wall fell]
+Plan: Find the year the first iPhone was released to use as the second number in the calculation.
+#E2 = Search[year first iPhone released]
+Plan: Find the number of original Pokémon in Generation I to use as the divisor in the calculation.
+#E3 = Search[number of original Pokémon in Generation I]
+Plan: Calculate the result by subtracting the year the first iPhone was released from the year the Berlin Wall fell, then dividing by the number of original Pokémon in Generation I.
+#E4 = Code[(#E1 - #E2) / #E3]
+Plan: Extract the final result from the calculation.
+#E5 = LLM[what is the result of the calculation, given #E4]
 
-You can repeat the plan, search, and replan processes multiple times if necessary. The maximum number of search attempts is limited to 5, and the maximum number of replans is limited to 2.
-
-Once you have all the information you need, continue your reasoning.
-
-Example:
-
-Question:
-Alice David is the voice of Lara Croft in a video game developed by which company?
-
-
-<plan>Alice David is the voice of Lara Croft in a video game developed by which company?</plan>
-
-<plan_result>
-```json
-{ 
-  "1": "Identify the video game in which Alice David voiced Lara Croft.",
-  "2": "Find the developer of that game."
-}
-```
-</plan_result>
-
-<search_query>video game in which Alice David voiced Lara Croft</search_query>
-<search_result>After searching, I found that the voice of Lara Croft has been provided by several actresses over the years, but the most well-known ones include Keeley Hawes and Camilla Luddington. However, I couldn't find any information confirming Alice David as the voice of Lara Croft.</search_result>
-
-<replan>The search didn't confirm Alice David as the voice of Lara Croft. I need to replan to find more accurate information.</replan>
-
-<reflection>
-Replan attempt 1/2: The initial plan assumed Alice David was the voice of Lara Croft, but our search didn't confirm this. We should first verify if Alice David actually voiced Lara Croft, and if so, identify the specific Tomb Raider game and then its developer.
-</reflection>
-
-<plan_result>
-```json
-{
-  "1": "Verify if Alice David has voiced Lara Croft in any Tomb Raider game",
-  "2": "Search for any voice acting roles of Alice David in video games",
-  "3": "If confirmed, identify which Tomb Raider game featured Alice David",
-  "4": "Find the developer of that specific game"
-}
-```
-</plan_result>
-
-<search_query>Alice David voice actress video game roles</search_query>
-<search_result>After searching, I found that Alice David is a French actress known for her role in the French comedy series "Bref." However, there is no evidence that she voiced Lara Croft in any Tomb Raider game. The main voice actresses for Lara Croft have been Shelley Blond, Judith Gibbins, Jonell Elliott, Keeley Hawes, Camilla Luddington, and Abigail Stahlschmidt across various games.</search_result>
-
-I now know the final answer.
-
-<answer>There is no evidence that Alice David voiced Lara Croft in any video game. The premise of the question appears to be incorrect, as Alice David is not listed as a voice actress for Lara Croft in the Tomb Raider series.</answer>
-
-Remember:
-- Use <plan> to plan further inquiries about the original question </plan>.
-- Use <search_query> to request a web search and end with </search_query>.
-- Use <replan> when you need to revise your approach based on search results </replan>.
-- After 2 replans, you must provide an answer with the information you have.
-- When done searching, continue your reasoning.
-- Stop when the answer is found.
-- Important: DO format your answer in the format: <answer>your answer</answer>.
-
-"""
-
-REACT_SYSTEM_PROMPT = """
-Answer the following questions as best you can. You may ask the human to use the following tools:
-
-web_search: Search for a given query on the web and return a result.
-
-You may respond in one of two formats.
-Use the following format exactly to ask the human to use a tool:
-
-<question>the input question you must answer</question>
-<thought>you should always think about what to do</thought>
-<action>the action to take, should be one of [web_search]</action>
-<observation>wait for the human to respond with the result from the tool, do not assume the response</observation>
-<thought>I now know the final answer</thought>
-<answer>the final answer to the original input question</answer>
-
-This <thought>/<action>/<observation> can repeat a number of times. If you do not need to use a tool, or after asking the human to use any tools and waiting for the human to respond, you might know the final answer.
-Use the following format once you have the final answer:
-<thought>I now know the final answer</thought>
-<answer>the final answer to the original input question</answer>
-
-Here is an example:
-<question>Who won the 2016 presidential election in the country where the political party of Democratic Progressive Party operates?</question>
-<thought>I need to find out where the Democratic Progressive Party operates and then find out who won the 2016 presidential election in that country.</thought>
-<action>web_search[Democratic Progressive Party]</action>
-<observation>The search results describe several political parties with the name "Democratic Progressive Party" (DPP) in different countries, including Taiwan and Singapore. The Democratic Progressive Party (DPP) in Taiwan is a center to center-left Taiwanese nationalist political party and a dominant party. The Progressive Democrats of America is another organization that aims to transform the Democratic Party in the United States.</observation>
-<thought>Since the question asks about a presidential election, and Taiwan has a president, I'll assume the question refers to the Democratic Progressive Party in Taiwan. I need to find out who won the 2016 presidential election in Taiwan.</thought>
-<action>web_search[2016 presidential election Taiwan]</action>
-<observation>In January 2016, Taiwan held presidential and legislative elections where Tsai Ing-wen of the Democratic Progressive Party (DPP) won a landslide victory, becoming Taiwan's first female president. The DPP also gained control of the legislature, ousting the ruling Kuomintang. Tsai Ing-wen defeated Eric Chu by a significant margin, garnering 56.12% of the vote.</observation>
-<thought>I now know the final answer.</thought>
-<answer>Tsai Ing-wen</answer>
-"""
-
-SUMMARY_SYSTEM_PROMPT = """
-You are a helpful assistant who is good at aggregate and summarize information.
-Summarize the information in a few sentence.
-"""
-
-# PLANNING_INSTRUCTION = """
-# You are a reasoning assistant. Your task is to generate a detailed query plan for answering the user's question by breaking it down into sub-queries.
-
-# Plan: {question}
-
-# Please analyze the question and break it down into multiple sub-queries that will help gather all the necessary information to answer it completely. 
-# Always focus on making these sub queries and decompose them such that they can be search-able in internet and a proper answer can be found to answer the question.
-# Always go by first principles when breaking down a question.
-
-# Example of a *BAD* subquery would be: "Find the capital of France and find the population of the city of Rome" since it contains two queries and is not a single query.
-
-# Output your query plan in JSON format as follows:
-
-# ```json
-# {{
-#   "1": "sub_query_1",
-#   "2": "sub_query_2",
-#   "3": "sub_query_3",
-#   ...
-# }}
-# ```
-# """
-
-PLANNING_INSTRUCTION = """
-You are a reasoning assistant. Your task is to generate a detailed query plan for answering the user's question by breaking it down into distinct, searchable sub-queries.
-
-Plan: {question}
-
-Please analyze the user's question and break it down into *only* the essential sub-queries required to gather information from external sources via search. Each sub-query should be a standalone, searchable unit aimed at retrieving a specific piece of information or answering a specific sub-problem necessary for the final answer.
-
-Follow these principles:
-1.  Identify all necessary pieces of information required to answer the question.
-2.  Determine which of these pieces of information are *not* explicitly provided in the question itself and require external lookup (e.g., searching the internet).
-3.  Formulate a clear, concise, and effective search query for *each* piece of information identified in step 2.
-4.  Ensure each sub-query is distinct and targets a single, searchable concept.
-5.  **Crucially, do NOT generate sub-queries for:**
-    * Simple arithmetic calculations (e.g., percentages, division, addition). These should be performed by the model *after* gathering the necessary data.
-    * Information that is already explicitly stated in the user's question.
-6. When you make a plan, don't assume things from your own knowledge,, make sure to verify them using internet search . you are given that toool for a reason, to validate any piece of searchable information. I repeat *DO NOT ASSUME ANYTHING FROM YOUR KNOWLEDGE, MAKE SURE TO VERIFY THEM USING THE INTERNET SEARCH*
-
-Always go by first principles when breaking down a question into its *searchable* components.
-
-Example of a *BAD* subquery: "1 percent as a decimal" (This is a simple calculation). "Passenger capacity of a 300-passenger plane" (The capacity is explicitly stated as 300 in the premise). A good subquery would be "Current population of New York City" if that population wasn't given.
-
-Output your query plan in JSON format as follows:json
-{{
-  "1": "searchable_sub_query_1",
-  "2": "searchable_sub_query_2",
-  "3": "searchable_sub_query_3",
-  ...
-}}
-
-Only include sub-queries that genuinely require searching to find the necessary information. If the question requires only calculation based on provided numbers, the plan might be empty or indicate no search is needed (though typically a question requiring planning involves some external data).
 """
 
 REPLAN_INSTRUCTION = """
-You are a reasoning assistant. Your task is to reflect on your previous search plan and create an improved one.
+## Task
+{task}
 
-Original Question: {question}
+## Previous Plan
+{prev_plan}
 
-Previous Plan:
-{previous_plan}
 
-Search Results Received So Far:
-{search_summary}
+Given the above task and the previous plan, please re-plan and generate a new plan. DO IGNORE the previous plan and start from scratch.
 
-Please analyze what's missing or inadequate in the previous plan. Consider:
-1. What information gaps remain?
-2. Which queries didn't yield useful results?
-3. What alternative approaches could be more effective?
-
-First, provide your reflection on the previous plan's shortcomings:
-
-<reflection>
-Your analysis of what went wrong with the previous plan
-</reflection>
-
-Then, create a new improved query plan in JSON format:
-
-```json
-{{
-  "1": "sub_query_1",
-  "2": "sub_query_2",
-  "3": "sub_query_3",
-  ...
-}}
-```
-
-Make your new queries more specific, targeted, and comprehensive than the previous ones.
 """
 
-ANSWER_OR_REPLAN_PROMPT = """
-You have finished web searches. Now, use reasoning based on the search results to answer the question.
-Only use the <replan> tag if the search results are clearly insufficient to answer the question.
-If you answer, briefly explain why the search results are sufficient. If you replan, explain what is missing.
-Remember, if you answer this correctly i will reward you $10000, replanning costs $500 so do it if absolutely necessary
-"""
+COMMONSENSE_INSTRUCTION = """\
+You are a commonsense agent. You can answer the given question with logical reasoning, basic math and commonsense knowledge.
+Finally, provide your answer in the format <answer>YOUR_ANSWER</answer>.
 
-MULTIHOP_QA_INSTRUCTION = """
-Please answer the following question. You should provide your final answer in the format <answer>YOUR_ANSWER</answer>.
-
-Question:
+## Question
 {question}
 
+"""
+
+SOLVER_PROMPT = """\
+You are an AI agent who solves a problem with my assistance. I will provide step-by-step plans(Plan) and evidences(#E) that could be helpful.
+Your task is to briefly summarize each step, then make a short final conclusion for your task.
+Finally, provide your answer in the format <answer>YOUR_ANSWER</answer>.
+
+## My Plans and Evidences
+{plan}
+
+## Example Output
+First, I <did something> , and I think <...>; Second, I <...>, and I think <...>; ....
+So, <your conclusion>.
+The answer is <answer>YOUR_ANSWER</answer>.
+
+## Your Task
+{task}
+
+## Now Begin
+"""
+
+SUMMARY_INSTRUCTION = """\
+You are a helpful assistant who is good at aggregate and summarize information.
+Your task is to briefly summarize the given information, then answer the question.
+Provide your answer in the format <answer>YOUR_ANSWER</answer>.
+
+## Context
+{context}
+
+## Question
+{task}
 
 """
 
-FIX_ANSWER_TAG_INSTRUCTION = """
-You are a text processing assistant. Your task is to examine the provided text. Locate the final XML-like tag that starts with `<answer>`. Check if this tag is properly closed with `</answer>`. If the text immediately following the content inside the `<answer>` tag is *not* `</answer>`, append `</answer>` at that position. Return the entire corrected text.
-Input:
+QA_PROMPT = """
+## Your Task
+{task}
 
-{input}
+## Now Begin
+"""
 
+CODE_SYSTEM_PROMPT = """\
+You are an expert Python programmer with deep knowledge of algorithms, data structures, mathematics, and software engineering best practices.
+
+Your task is to write Python code that solves the given problem **and produces the final result as a printed output**. The code will be directly executed in a Python interpreter, so do not include explanations or intermediate print statements — only the final result matters.
+
+Follow these instructions strictly:
+
+1. Analyze the task and choose the most efficient and appropriate solution approach.
+2. Write clean, well-documented, and maintainable code.
+3. Structure your response with:
+   - All required imports and dependencies
+   - Complete, executable Python code with necessary variable definitions
+   - The **final output printed at the end**, using `print(...)`
+4. Handle edge cases and errors gracefully.
+5. Do not output anything other than the final code block.
+6. The output of the script should be the **final answer** to the task — no debug prints or explanations.
+
+Code best practices:
+- Use meaningful variable names.
+- Follow PEP8 style guidelines.
+- Include comments where complex logic is used.
+- Optimize for performance and clarity.
+
+Example:
+
+Task: Calculate the combined population of China and India in 2022.
+
+```python
+# Given populations in billions
+population_china_2022 = 1.412 * 10**9
+population_india_2022 = 1.417 * 10**9
+
+# Calculate total population
+combined_population = population_china_2022 + population_india_2022
+
+# Print final result
+print(combined_population)
+```
+
+"""
+
+CODE_INSTRUCTION = """\
+Task: {task}
+
+Code:
+
+"""
+
+QUESTION_REWORD_INSTRUCTION = """
+You are a helpful assistant that rephrases text into a clear, searchable question suitable for web search.
+
+**Instructions:**
+1.  **Analyze the input:** Determine if the provided text is already a clear and searchable question.
+2.  **Reword if necessary:** If the input is unclear, fragmented, or not in the form of a question, rephrase it to be a concise and effective search query.
+3.  **Return as is:** If the input is already a good search query, return it unchanged.
+4.  **Formatting:** The reworded or original query must be delimited by `<reworded_query>...</reworded_query>`.
+
+Example:
+Input: What is the capital of France?
+Output: <reworded_query>What is the capital of France?</reworded_query>
+
+Input: population of China
+Output: <reworded_query>What is the population of China?</reworded_query>
+
+Input: {tool_input}
 Output:
-
 """
