@@ -1,28 +1,46 @@
 import asyncio
-
+from deepsearch.utils import extract_content
 from deepsearch.graph import graph
-from deepsearch.utils import extract_answer
-from langchain_core.messages import HumanMessage
 
 
 async def solve(question):
+    
     res = await graph.ainvoke({
-        "messages": [HumanMessage(f"<question>{question}</question>")],
-        "current_iter": 0,
-        "max_iter": 5,
+        "task": question,
+        "plan_string": None,
+        "steps": [],
+        "results": {},
+        "result": None,
+        "intermediate_result": None,
         "search_query": None,
-        "search_summary": None,
-        "answer": None
-    })
+        "needs_replan": False,
+        "replan_iter": 0,
+        "max_replan_iter": 1
+    }, {"recursion_limit": 30})
 
-    for m in res["messages"]:
-        m.pretty_print()
-    last_msg_line = res["messages"][-1].content.split("\n")[-1]
-    answer = extract_answer(last_msg_line)
+    print(res)
+    print(res["plan_string"])
+    print(res["results"])
+
+    response = res["result"]
+    answer = extract_content(response, "answer")
     if answer is None:
-        print("Failed without an answer!")
+        print("Failed without an answer!")  
     print(f"The answer is: {answer}")
 
+#Sample query to test the code
+query = "If my future wife has the same first name as the 15th first lady of the United States' mother and her surname is the same as the second assassinated president's mother's maiden name, what is my future wife's name? "
 
-query = "Which magazine was started first Arthur's Magazine or First for Women?"
-asyncio.run(solve(query))
+if __name__ == "__main__":
+    loop = asyncio.get_event_loop()
+    try:
+        loop.run_until_complete(solve(query))
+    finally:
+        # Cancel all pending tasks and close loop properly
+        pending = asyncio.all_tasks(loop=loop)
+        for task in pending:
+            task.cancel()
+        if pending:
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        loop.close()
+

@@ -71,4 +71,8 @@ class JinaReranker(BaseSemanticSearcher):
             return embeddings
             
         except requests.exceptions.RequestException as e:
+            api_backup_key = os.getenv('JINA_API_BACKUP_KEY')
+            if api_backup_key:
+                os.environ['JINA_API_KEY'] = api_backup_key
+                return _get_embeddings(texts)
             raise RuntimeError(f"Error calling Jina AI API: {str(e)}")

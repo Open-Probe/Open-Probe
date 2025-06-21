@@ -9,7 +9,7 @@ from typing import List, Optional, Tuple
 from .chunker import Chunker
 from .crawl4ai_scraper import WebScraper
 from .jina_reranker import JinaReranker
-
+from .local_reranker import LocalReranker
 
 @dataclass
 class Source:
@@ -39,6 +39,9 @@ class SourceProcessor:
         if reranker.lower() == "jina":
             self.semantic_searcher = JinaReranker()
             print("Using Jina Reranker")
+        elif reranker.lower() == "local":
+            self.semantic_searcher = LocalReranker()
+            print("Using Local Reranker")
         # else:  # default to infinity
         #     self.semantic_searcher = InfinitySemanticSearcher()
         #     print("Using Infinity Reranker")
@@ -82,13 +85,45 @@ class SourceProcessor:
         try:
             # Split the HTML content into chunks
             documents = self.chunker.split_text(html)
+
+            # Save documents and query to JSON file
+            import json
+            import os
+            from datetime import datetime
             
-            # Rerank the chunks based on the query
+            # Create data directory if it doesn't exist
+            os.makedirs("data", exist_ok=True)
+            
+            # Load existing documents if file exists
+            json_file = "testing_reranked_documents.json"
+            stored_docs = []
+            if os.path.exists(json_file):
+                with open(json_file, "r") as f:
+                    stored_docs = json.load(f)
+            
+            # Get reranked content first so we can store both original and ranked
             reranked_content = self.semantic_searcher.get_reranked_documents(
                 query,
                 documents,
                 top_k=self.top_results
             )
+            
+            # Create document entry with both original and ranked content
+            doc_entry = {
+                "query": query,
+                "original_documents": documents,
+                "ranked_documents": reranked_content,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            # Update stored documents, keeping only latest entry
+            stored_docs = [doc_entry]
+            
+            # Save updated documents
+            with open(json_file, "w") as f:
+                json.dump(stored_docs, f, indent=2)
+
+            print(f"Ranked content is saved in {json_file}")
             
             return reranked_content
         
