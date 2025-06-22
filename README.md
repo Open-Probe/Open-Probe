@@ -17,7 +17,7 @@ OpenProbe is an advanced agent-based search system that performs deep web search
 
 ## 🏗️ Architecture
 
-### Current Architecture
+### Current Architecture (Not updated)
 ![image](https://github.com/user-attachments/assets/4e6d22b7-2dcc-446a-a129-8f1ba5abf1cd)
 
 ### Core Components
