@@ -1,6 +1,7 @@
 PLAN_SYSTEM_PROMPT = """\
 You are an AI agent who makes step-by-step plans to solve a problem under the help of external tools. 
 For each step, make one plan followed by one tool-call, which will be executed later to retrieve evidence for that step.
+Don't use the internal knowledge of the LLM to answer the question, you need to heavily rely on the Search tool to validate any piece of information.
 You should store each evidence into a distinct variable #E1, #E2, #E3 ... that can be referred to in later tool-call inputs.    
 
 ## Available Tools
@@ -18,7 +19,24 @@ Plan: <describe next plan>
 #E2 = <toolname>[<input here, you can use #E1 to represent its expected output>]
 And so on...
 
-## Example
+BAD EXAMPLES: The below is a bad example of a plan.
+Task: Who won the most recent Olympic games?
+Plan: Search for the most recent Olympic games in 2023.
+#E1 = Search[most recent Olympic games in 2023]
+
+Why is it bad? -> It is bad because it assumed the year 2023 using its internal knowledge instead of relying on tools. 
+
+GOOD EXAMPLES: The below is a good example of a plan.
+## Example 1
+Task: Who won the most recent Olympic games?
+Plan: Search for the most recent Olympic games.
+#E1 = Search[most recent Olympic games]
+Plan: Extract the winner of the most recent Olympic games from the search results.
+#E2 = LLM[who won the most recent Olympic games, given #E1]
+
+Why is it good? -> It is good because it relied on tools to find the information.
+
+## Example 2
 Task: Alice David is the voice of Lara Croft in a video game developed by which company?
 Plan: Search for video games where Alice David voiced Lara Croft to identify the specific game title.
 #E1 = Search[Alice David voice of Lara Croft video game]
@@ -27,6 +45,7 @@ Plan: Search for the developer of the video game identified in #E1.
 Plan: Extract the name of the developing company from the search results in #E2.
 #E3 = LLM[what company developed the video game where Alice David voiced Lara Croft?, given #E2]
 
+## Example 3
 Task: Take the year the Berlin Wall fell, subtract the year the first iPhone was released, and divide that number by the number of original Pokémon in Generation I. What is the result?
 Plan: Find the year the Berlin Wall fell to use as the first number in the calculation.
 #E1 = Search[year Berlin Wall fell]
@@ -38,8 +57,31 @@ Plan: Calculate the result by subtracting the year the first iPhone was released
 #E4 = Code[(#E1 - #E2) / #E3]
 Plan: Extract the final result from the calculation.
 #E5 = LLM[what is the result of the calculation, given #E4]
-
 """
+
+
+# ## Example 4
+# Task: What is the difference between the number of years served in the seventh-ratified US state's House of Delegates between that state's senator elected in 2007 and his uncle?
+# Plan: Identify the seventh-ratified U.S. state.
+# #E1 = Search[seventh-ratified U.S. state]
+# Plan: Find which senator from that state was elected in 2007.
+# #E2 = Search[senator elected in 2007 from #E1]
+# Plan: Extract that senator's name from #E2.
+# #E3 = LLM[What is the name of the senator elected in 2007 from #E1?, given #E2]
+# Plan: Determine how many years this senator served in the #E1 House of Delegates.
+# #E4 = Search[years served in the #E1 House of Delegates by #E3]
+# Plan: Extract the senator's years-served total from #E4.
+# #E5 = LLM[How many years did #E3 serve in the #E1 House of Delegates?, given #E4]
+# Plan: Identify the senator's uncle.
+# #E6 = Search[uncle of #E3 #E1 senator]
+# Plan: Extract the uncle's name from #E6.
+# #E7 = LLM[What is the name of #E3's uncle?, given #E6]
+# Plan: Determine how many years that uncle served in the #E1 House of Delegates.
+# #E8 = Search[years served in the #E1 House of Delegates by #E7]
+# Plan: Extract the uncle's years-served total from #E8.
+# #E9 = LLM[How many years did #E7 serve in the #E1 House of Delegates?, given #E8]
+# Plan: Compute the difference in years between the two service totals.
+# #E10 = LLM[What is the difference between #E5 and #E9 years?, given #E5 and #E9]
 
 REPLAN_INSTRUCTION = """
 ## Task
@@ -48,18 +90,34 @@ REPLAN_INSTRUCTION = """
 ## Previous Plan
 {prev_plan}
 
+## Reflection on the previous plan
+{reflection}
 
-Given the above task and the previous plan, please re-plan and generate a new plan. DO IGNORE the previous plan and start from scratch.
+Given the above task, the previous plan, and the reflection on the previous plan, please re-plan and generate a new plan based on your learning from the reflection.
+"""
 
+REFLECTION_INSTRUCTION = """\
+You are a helpful assistant who is good at reflecting on the previous plan and the task. 
+You need to find the pain points that previous plan missed which caused the plan to fail
+
+## Task
+{task}
+
+## Previous Plan
+{prev_plan}
+
+## Reflection on the previous plan
 """
 
 COMMONSENSE_INSTRUCTION = """\
 You are a commonsense agent. You can answer the given question with logical reasoning, basic math and commonsense knowledge.
 Finally, provide your answer in the format <answer>YOUR_ANSWER</answer>.
 
+If you find that you CANT answer the question confidently, you can request a replan by writing 
+<replan> I need to replan </replan>.  
+
 ## Question
 {question}
-
 """
 
 SOLVER_PROMPT = """\

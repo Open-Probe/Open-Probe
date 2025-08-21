@@ -14,6 +14,7 @@ async def solve(question):
         "intermediate_result": None,
         "search_query": None,
         "needs_replan": False,
+        "reflection": None,
         "replan_iter": 0,
         "max_replan_iter": 1
     }, {"recursion_limit": 30})

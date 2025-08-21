@@ -6,10 +6,12 @@ OpenProbe is an advanced agent-based search system that performs deep web search
 
 - **Deep Web Search**: Multi-step search process with intelligent planning and execution.
 - **Automated Planning**: Breaks down complex queries into multiple sub-queries for efficient searching.
-- **Adaptive Replanning**: Revises search strategies when initial plans fall short (up to 2 replans).
+- **Adaptive Replanning**: Revises search strategies when initial plans fall short (default up to 1 replan; configurable via CLI).
 - **Reflection**: Explains why previous plans failed and how they were improved.
 - **Web Search Integration**: Seamlessly integrates with multiple search APIs for information retrieval.
-- **Intelligent Reranking**: Jina-powered result reranking for enhanced relevance.
+- **Intelligent Reranking**: Jina-powered result reranking with optional local reranker support.
+- **Query Rewriting**: Automatically rephrases tool inputs into better search queries.
+- **Code Execution Tool**: Executes generated Python code in a local REPL to compute answers when needed.
 - **Evaluation Framework**: Built-in evaluation system for testing search quality.
 - **CLI Interface**: Command-line tool for easy interaction.
 - **Caching System**: Persistent caching for improved performance.
@@ -35,7 +37,9 @@ The system uses LangGraph to orchestrate the search process with these key nodes
 1. **Master Node**: Central decision-making component
 2. **Plan Node**: Generates structured research plans
 3. **Search Node**: Executes web searches and processes results
-4. **Decide Action**: Routes between nodes based on current state
+4. **Code Node**: Generates and executes Python when helpful
+5. **Solve Node**: Synthesizes intermediate results into a final answer
+6. **Replan Node**: Reflects and replans when results are insufficient
 
 ## 🛠️ Installation
 
@@ -43,9 +47,11 @@ The system uses LangGraph to orchestrate the search process with these key nodes
 
 - Python 3.8+
 - API keys for:
-  - Google Gemini API
+  - Google Gemini API (required)
   - Serper.dev API (for web search)
   - Jina API (for reranking)
+  - Lambda/OpenAI-compatible API (optional; enable alternative models via `LAMBDA_API_KEY`)
+- Optional local reranker service (set host/port env vars)
 
 ### Setup Steps
 
@@ -65,7 +71,7 @@ The system uses LangGraph to orchestrate the search process with these key nodes
    
    Set environment variables:
    ```bash
-   # Google Gemini API key for LLM
+   # Google Gemini API key for LLM (default provider)
    export GOOGLE_API_KEY=your_api_key
    
    # Serper.dev API key for web search
@@ -73,6 +79,13 @@ The system uses LangGraph to orchestrate the search process with these key nodes
    
    # Jina API key for reranking
    export JINA_API_KEY=your_api_key
+
+   # Optional: Use Lambda/OpenAI-compatible models via Lambda API
+   export LAMBDA_API_KEY=your_api_key
+
+   # Optional: Use a local reranker service instead of Jina
+   export RERANKER_SERVER_HOST_IP=127.0.0.1
+   export RERANKER_SERVER_PORT=8080
    ```
    
    Or create a `.env` file in the project root:
@@ -80,6 +93,9 @@ The system uses LangGraph to orchestrate the search process with these key nodes
    GOOGLE_API_KEY=your_api_key
    WEB_SEARCH_API_KEY=your_api_key
    JINA_API_KEY=your_api_key
+   LAMBDA_API_KEY=your_api_key # optional
+   RERANKER_SERVER_HOST_IP=127.0.0.1 # optional
+   RERANKER_SERVER_PORT=8080        # optional
    ```
 
 ## 🚀 Quick Start
@@ -103,50 +119,26 @@ python -m src.deepsearch.cli search --max-replan 2 "Who won the most recent Olym
 # Run in interactive mode
 python -m src.deepsearch.cli search --interactive
 
-# Configure settings
-python -m src.deepsearch.cli config --set max_sources=5 verbose=true
-
-# Show current configuration
-python -m src.deepsearch.cli config --show
-
-# Reset configuration to defaults
-python -m src.deepsearch.cli config --reset
-
 # Show version information
 python -m src.deepsearch.cli version
 ```
 
-## ⚙️ Configuration
+## ⚙️ Parameters
 
-OpenProbe uses a flexible configuration system with persistent settings:
+OpenProbe behavior is controlled via CLI flags and environment variables.
 
-### Key Settings
+### CLI Flags
 
-| Setting | Description | Default |
-|---------|-------------|---------|
-| `max_sources` | Maximum sources to process | 3 |
-| `max_iterations` | Maximum search iterations | 5 |
-| `web_search_provider` | Search provider | "serper" |
-| `reranker` | Result reranker | "jina" |
-| `model_name` | Language model | "gemini-2.5-pro-preview-05-06" |
-| `cache_enabled` | Enable result caching | true |
-| `cache_max_age_days` | Cache expiration days | 7 |
-| `verbose` | Enable detailed logging | false |
+- `search --max-replan <int>`: Maximum replanning iterations (default: 1)
+- `search --interactive` / `-i`: Run in interactive mode
 
-### Configuration Usage
+### Environment Variables
 
-```python
-from src.deepsearch.config import config
-
-# Set values
-config.set("max_sources", 5)
-config.set("verbose", True)
-
-# Get values
-max_sources = config.get("max_sources")
-```
-
-Configuration is automatically saved to `~/.openprobe/config.json`.
+- `GOOGLE_API_KEY`: Required for default Gemini models
+- `WEB_SEARCH_API_KEY`: Required for Serper.dev search
+- `JINA_API_KEY`: Required for Jina reranking (if not using local reranker)
+- `LAMBDA_API_KEY` (optional): Use Lambda/OpenAI-compatible models instead of Gemini
+- `RERANKER_SERVER_HOST_IP` and `RERANKER_SERVER_PORT` (optional): Use local reranker instead of Jina
 
 ## 🔍 How It Works
 
@@ -157,9 +149,9 @@ Configuration is automatically saved to `~/.openprobe/config.json`.
 3. **Search Execution**: Executes searches based on the plan using:
    - SERP Search via Serper.dev
    - Content extraction and processing
-   - Intelligent reranking with Jina
+   - Intelligent reranking with Jina or a local reranker
 4. **Result Processing**: Aggregates and processes search results
-5. **Adaptive Replanning**: If results are insufficient, replans with improved queries (up to 2 times)
+5. **Adaptive Replanning**: If results are insufficient, replans with improved queries (configurable via `--max-replan`)
 6. **Answer Synthesis**: Synthesizes all information into a comprehensive answer
 
 ### Web Search Components
@@ -169,7 +161,7 @@ The web search system includes:
 - **SERP Search**: Serper.dev API integration
 - **Content Processing**: Web scraping and content cleaning
 - **Chunking**: Text processing for manageable chunks
-- **Reranking**: Jina-powered result enhancement
+- **Reranking**: Jina-powered result enhancement (or local reranker if configured)
 - **Context Building**: Comprehensive context aggregation
 - **Caching**: Persistent result caching
 
@@ -195,9 +187,10 @@ python evals/autograde_df.py
 ## 🔧 System Limitations
 
 - Maximum of 5 search attempts per session
-- Maximum of 2 replanning attempts for any query
+- Default of 1 replanning attempt per query (configurable via `--max-replan`)
 - After the replan limit is reached, the system must answer with available information
 - Cache location: `~/.openprobe/cache/`
+- Security note: The Code tool runs Python locally; review tasks before enabling code execution in untrusted environments.
 
 ## 📁 Project Structure
 
@@ -223,9 +216,10 @@ openprobe_dev/
 
 ## 🔑 Key Dependencies
 
-- **Google Gemini API**: Language model capabilities
+- **Google Gemini API**: Language model capabilities (default)
+- **Lambda/OpenAI-compatible API**: Optional LLM provider when `LAMBDA_API_KEY` is set
 - **Serper.dev**: Web search functionality
-- **Jina**: Search result reranking
+- **Jina**: Search result reranking (or local service)
 - **LangGraph**: Workflow orchestration
 - **LangChain**: LLM framework integration
 
