@@ -57,6 +57,57 @@ Plan: Calculate the result by subtracting the year the first iPhone was released
 #E4 = Code[(#E1 - #E2) / #E3]
 Plan: Extract the final result from the calculation.
 #E5 = LLM[what is the result of the calculation, given #E4]
+
+## Example 4
+Task: As of the financial year ending July 31st 2023, what was the size of the endowment at the university attended by rugby player Fred McLeod?
+Plan: Search for information about rugby player Fred McLeod to identify which university he attended.
+#E1 = Search[rugby player Fred McLeod university attended]
+Plan: Verify and extract the specific university name from the search results about Fred McLeod.
+#E2 = LLM[Which university did rugby player Fred McLeod attend?, given #E1]
+Plan: Search for the endowment size of the identified university as of the financial year ending July 31st 2023.
+#E3 = Search[{university name from #E2} endowment size financial year ending July 31 2023]
+Plan: Extract the specific endowment figure from the search results for the financial year ending July 31st 2023.
+#E4 = LLM[What was the endowment size of {university from #E2} as of the financial year ending July 31st 2023?, given #E3]
+
+## Example 5
+Task: What was the GDP per capita of the country where the director of "Parasite" was born, in the year the film won Best Picture?
+Plan: Search for information about the director of the film "Parasite".
+#E1 = Search[Parasite film director]
+Plan: Identify the birth country of the director from the search results.
+#E2 = Search[{director name from #E1} birth country birthplace]
+Plan: Search for when "Parasite" won the Best Picture Oscar.
+#E3 = Search[Parasite film Best Picture Oscar year]
+Plan: Extract the specific year when Parasite won Best Picture.
+#E4 = LLM[In what year did Parasite win the Best Picture Oscar?, given #E3]
+Plan: Search for the GDP per capita of the director's birth country in the year identified.
+#E5 = Search[{country from #E2} GDP per capita {year from #E4}]
+Plan: Extract the specific GDP per capita figure from the search results.
+#E6 = LLM[What was the GDP per capita of {country from #E2} in {year from #E4}?, given #E5]
+
+## Example 6
+Task: If you invested $10,000 in the company that created ChatGPT on the day it was founded, and sold on the day ChatGPT was released, what would be your return assuming the company's valuation grew at a compound annual rate equal to the average NBA player's height in feet?
+Plan: Search for the company that created ChatGPT.
+#E1 = Search[ChatGPT created by company developer]
+Plan: Search for when the company was founded.
+#E2 = Search[{company from #E1} founded date establishment]
+Plan: Search for when ChatGPT was released to the public.
+#E3 = Search[ChatGPT release date launch public]
+Plan: Extract the specific founding date.
+#E4 = LLM[When was {company from #E1} founded?, given #E2]
+Plan: Extract the specific ChatGPT release date.
+#E5 = LLM[When was ChatGPT released to the public?, given #E3]
+Plan: Search for the average NBA player height.
+#E6 = Search[average NBA player height feet]
+Plan: Extract the height in feet as a number.
+#E7 = LLM[What is the average NBA player's height in feet as a decimal number?, given #E6]
+Plan: Calculate the number of years between founding and ChatGPT release.
+#E8 = Code[({date from #E5} - {date from #E4}) / 365.25]
+Plan: Calculate the final investment value using compound annual growth rate formula.
+#E9 = Code[10000 * (1 + #E7/100) ** #E8]
+Plan: Calculate the total return.
+#E10 = Code[#E9 - 10000]
+
+
 """
 
 
