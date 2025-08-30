@@ -17,7 +17,7 @@ def count_final_grade_A(filename):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Calculate accurary from graded answers in a DataFrame')
-    parser.add_argument('df_path', type=str, help='Path to the graded DataFrame JSON file')
+    parser.add_argument('--df_path', type=str, help='Path to the graded DataFrame JSON file')
 
     args = parser.parse_args()
     count, total_count = count_final_grade_A(args.df_path) 

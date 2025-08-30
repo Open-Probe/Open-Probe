@@ -14,7 +14,7 @@ from datasets import Dataset
 from dotenv import load_dotenv
 from tqdm import tqdm
 from deepsearch.utils import extract_content
-from deepsearch.rewoo_graph import graph
+from deepsearch.graph import graph
 
 load_dotenv()
 
@@ -27,7 +27,7 @@ openai_api_key = os.getenv("LAMBDA_API_KEY")
 if openai_api_key:
     model_id = "deepseek-r1-671b"
 else:
-    model_id = "gemini-2.5-flash-preview-04-17"
+    model_id = "gemini-2.5-pro"
 
 if reranker_ip:
     reranker = "local"
@@ -40,7 +40,7 @@ def parse_arguments():
         "--eval-tasks",
         type=str,
         nargs="+",
-        default=["./evals/datasets/frames_test_set.csv"],
+        default=["./evals/datasets/frames_sample_set.csv"],
         help="List of evaluation task paths",
     )
     parser.add_argument(
@@ -48,6 +48,12 @@ def parse_arguments():
         type=int,
         default=8,
         help="The number of processes to run in parallel",
+    )
+    parser.add_argument(
+        "--batch-save-size",
+        type=int,
+        default=10,
+        help="Number of completed answers to batch before saving to file",
     )
     return parser.parse_args()
 
@@ -62,12 +68,55 @@ def load_eval_dataset(eval_tasks: list):
     return eval_ds
 
 def append_answer(entry: dict, jsonl_file: str) -> None:
+    """Legacy function - kept for compatibility, but prefer batch_append_answers"""
     jsonl_file = Path(jsonl_file)
     jsonl_file.parent.mkdir(parents=True, exist_ok=True)
     with APPEND_ANSWER_LOCK, open(jsonl_file, "a", encoding="utf-8") as fp:
         fp.write(json.dumps(entry) + "\n")
     assert os.path.exists(jsonl_file), "File not found!"
+    print(f"✅ Saved answer to: {jsonl_file}")
+    print(f"   Question: {entry['original_question'][:100]}...")
+    print(f"   Answer: {entry['answer'][:100]}...")
 
+def batch_append_answers(entries: list[dict], jsonl_file: str) -> None:
+    """Append multiple answers to JSONL file in a single operation"""
+    if not entries:
+        return
+    
+    jsonl_file = Path(jsonl_file)
+    jsonl_file.parent.mkdir(parents=True, exist_ok=True)
+    with APPEND_ANSWER_LOCK, open(jsonl_file, "a", encoding="utf-8") as fp:
+        for entry in entries:
+            fp.write(json.dumps(entry) + "\n")
+    assert os.path.exists(jsonl_file), "File not found!"
+    
+    print(f"💾 Batch saved {len(entries)} answers to: {jsonl_file}")
+    for i, entry in enumerate(entries):
+        print(f"   [{i+1}] Q: {entry['original_question'][:80]}...")
+        print(f"       A: {entry['answer'][:80]}...")
+
+
+def load_answered_questions(jsonl_file: str) -> set[str]:
+    """Load already-answered questions from a JSONL file into a set for fast lookup."""
+    answered_questions: set[str] = set()
+    if not os.path.exists(jsonl_file):
+        return answered_questions
+
+    try:
+        with open(jsonl_file, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    obj = json.loads(line)
+                    question = obj.get("original_question")
+                    if question is not None:
+                        answered_questions.add(question)
+                except Exception:
+                    # Skip malformed lines
+                    continue
+    except Exception as e:
+        print(f"⚠️ Could not read existing answers file: {e}")
+
+    return answered_questions
 
 def run_with_timeout(func, timeout):
     with ThreadPoolExecutor(max_workers=1) as executor:
@@ -77,7 +126,8 @@ def run_with_timeout(func, timeout):
         except TimeoutError:
             return "Timed Out"
 
-async def answer_single_question(example, answers_file):
+async def answer_single_question(example, answers_file=None):
+    """Answer a single question and return the result instead of immediately saving"""
     augmented_question = example["question"]
 
     TIMEOUT_SECONDS = 300  # 5 minutes timeout
@@ -93,8 +143,8 @@ async def answer_single_question(example, answers_file):
             "search_query": None,
             "needs_replan": False,
             "replan_iter": 0,
-            "max_replan_iter": 1
-        }, {"recursion_limit": 30})
+            "max_replan_iter": 2
+        }, {"recursion_limit": 40})
 
         print(res)
         print(res["plan_string"])
@@ -117,15 +167,18 @@ async def answer_single_question(example, answers_file):
         "answer": answer,
         "true_answer": example["true_answer"],
     }
-    append_answer(annotated_example, answers_file)
+    
+    # Return the result instead of immediately saving
+    return annotated_example
 
-def answer_sync(example, file_name):
-        return asyncio.run(answer_single_question(example, file_name))
+def answer_sync(example):
+        return asyncio.run(answer_single_question(example))
 
 def answer_questions(
     eval_ds,
     output_dir: str = "output",
     parallel_workers: int = 32,
+    batch_save_size: int = 10,
 ):
     # Create directory structure: output/model_id/reranker/task
     model_dir = model_id.replace('/', '__')
@@ -135,24 +188,82 @@ def answer_questions(
         os.makedirs(task_dir, exist_ok=True)
         
         file_name = f"{task_dir}/{model_id}__{reranker}__{task}.jsonl"
-        print(f"Starting processing and writing output to '{file_name}'")
-        answered_questions = []
+        print(f"\n🚀 Starting processing for task: {task}")
+        print(f"📁 Output file: {file_name}")
+        print(f"📍 Full path: {os.path.abspath(file_name)}")
+        answered_questions = load_answered_questions(file_name)
         if os.path.exists(file_name):
-            with open(file_name, "r") as f:
-                for line in f:
-                    answered_questions.append(json.loads(line)["original_question"])
-        examples_todo = [example for example in eval_ds[task] if example["question"] not in answered_questions]
-        print(f"Launching {parallel_workers} parallel workers.")
+            print(f"📋 Found {len(answered_questions)} already answered questions, skipping them")
+        else:
+            print(f"📄 Creating new output file")
 
+        # Deduplicate within the dataset and filter out previously answered
+        dataset_seen: set[str] = set()
+        duplicates_in_dataset = 0
+        examples_todo = []
+        for example in eval_ds[task]:
+            q = example["question"]
+            if q in answered_questions:
+                continue
+            if q in dataset_seen:
+                duplicates_in_dataset += 1
+                continue
+            dataset_seen.add(q)
+            examples_todo.append(example)
+
+        print(f"⚡ Processing {len(examples_todo)} questions with {parallel_workers} parallel workers.")
+        print(f"💾 Using batch saving: will save every {batch_save_size} completed answers")
+        if duplicates_in_dataset > 0:
+            print(f"📎 Skipped {duplicates_in_dataset} duplicate questions found in the dataset")
+
+        # Batch saving: collect answers and save every batch_save_size completions
+        answer_buffer = []
+        completed_count = 0
+        BATCH_SIZE = batch_save_size
+        run_seen_questions: set[str] = set()
+        
         with ThreadPoolExecutor(max_workers=parallel_workers) as exe:
             futures = [
-                exe.submit(answer_sync, example, file_name) 
+                exe.submit(answer_sync, example) 
                 for example in examples_todo
             ]
+            
             for f in tqdm(as_completed(futures), total=len(examples_todo), desc="Processing tasks"):
-                f.result()
+                try:
+                    result = f.result()
+                    if result:  # Only add valid results
+                        q = result.get("original_question") if isinstance(result, dict) else None
+                        if q is None:
+                            continue
+                        if q in answered_questions or q in run_seen_questions:
+                            # Skip duplicates already answered or processed in this run
+                            continue
+                        run_seen_questions.add(q)
+                        answer_buffer.append(result)
+                        completed_count += 1
+                        
+                        # Save batch when we reach BATCH_SIZE
+                        if len(answer_buffer) >= BATCH_SIZE:
+                            batch_append_answers(answer_buffer, file_name)
+                            print(f"🔄 Progress: {completed_count}/{len(examples_todo)} completed")
+                            answer_buffer.clear()
+                            
+                except Exception as e:
+                    print(f"❌ Error processing result: {e}")
+            
+            # Save any remaining answers in the buffer
+            if answer_buffer:
+                batch_append_answers(answer_buffer, file_name)
+                print(f"🔄 Final batch: {len(answer_buffer)} remaining answers saved")
 
-        print("All tasks processed.")
+        print(f"✅ All {len(examples_todo)} tasks processed for {task}!")
+        print(f"📊 Output saved to: {os.path.abspath(file_name)}")
+        
+        # Show final file stats
+        if os.path.exists(file_name):
+            with open(file_name, "r") as f:
+                total_lines = sum(1 for _ in f)
+            print(f"📈 File now contains {total_lines} total entries")
 
 
 if __name__ == "__main__":
@@ -162,4 +273,5 @@ if __name__ == "__main__":
     answer_questions(
         eval_ds,
         parallel_workers=args.parallel_workers,
+        batch_save_size=args.batch_save_size,
     )

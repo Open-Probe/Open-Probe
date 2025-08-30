@@ -21,7 +21,8 @@ from .prompt import (
     REPLAN_INSTRUCTION,
     REFLECTION_INSTRUCTION,
     QUESTION_REWORD_INSTRUCTION,
-    COMMONSENSE_INSTRUCTION
+    COMMONSENSE_INSTRUCTION,
+    EXPLAINATION_ANSWER
 )
 from .utils import extract_content, remove_think_cot
 from dotenv import load_dotenv
@@ -34,6 +35,7 @@ WEB_SEARCH_API_KEY = os.getenv("WEB_SEARCH_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 OPENAI_API_KEY = os.getenv("LAMBDA_API_KEY")
 OPENAI_API_BASE_URL = "https://api.lambda.ai/v1"
+MAX_SOURCES_PER_SEARCH = int(os.getenv("MAX_SOURCES_PER_SEARCH", "3"))
 
 # Constants
 REGEX_PATTERN = r"Plan:\s*(.+)\s*(#E\d+)\s*=\s*(\w+)\s*\[([^\]]+)\]"
@@ -46,6 +48,7 @@ class ReWOOState(TypedDict):
     plan_string: str
     steps: List
     results: dict
+    sources: Optional[List]  # Store processed sources from search
     result: str
     intermediate_result: str
     search_query: str
@@ -53,6 +56,7 @@ class ReWOOState(TypedDict):
     replan_iter: int
     max_replan_iter: int
     reflection: str
+    explaination: str
 
 
 # Initialize models based on available API keys
@@ -64,6 +68,8 @@ def initialize_models() -> Dict[str, BaseLanguageModel]:
         Dict containing the models for different functions
     """
     if OPENAI_API_KEY:
+        print("Using LAMBDA AI models \n")
+
         from langchain_openai import ChatOpenAI
         plan_model_id = "qwen3-32b-fp8"
         common_model_id = "llama3.3-70b-instruct-fp8"
@@ -88,18 +94,24 @@ def initialize_models() -> Dict[str, BaseLanguageModel]:
             base_url=OPENAI_API_BASE_URL,
         )
     else:
+        print("Using Google Gemini models \n")
         from langchain_google_genai import ChatGoogleGenerativeAI
-        small_model = "gemini-2.5-flash-lite"
+        small_model = "gemini-2.5-flash"
         large_model = "gemini-2.5-pro"
 
         plan_model = ChatGoogleGenerativeAI(
             model=large_model,
+            temperature=0.1,
+            google_api_key=GOOGLE_API_KEY
+        )
+        common_model = ChatGoogleGenerativeAI(
+            model=small_model,
             temperature=0.2,
             google_api_key=GOOGLE_API_KEY
         )
-        common_model = code_model = ChatGoogleGenerativeAI(
+        code_model = ChatGoogleGenerativeAI(
             model=small_model,
-            temperature=0.2,
+            temperature=0.0,
             google_api_key=GOOGLE_API_KEY
         )
     
@@ -242,7 +254,8 @@ def master(state: ReWOOState) -> Command[Literal["plan", "search", "code", "solv
         print("=========LLM TOOL RESPONSE=========\n", response)
         if "<replan>" in response:
             return Command(
-                goto="replan"
+                goto="master",
+                update={"needs_replan": True}
             )
 
         if result is None:
@@ -275,7 +288,7 @@ def replan(state: ReWOOState) -> Command[Literal["plan"]]:
     # Generate reflection if it doesn't exist
     if not state.get("reflection"):
         reflection_prompt = REFLECTION_INSTRUCTION.format(task=state["task"], prev_plan=state["plan_string"])
-        reflection_response = COMMON_MODEL.invoke([HumanMessage(reflection_prompt)])
+        reflection_response = PLAN_MODEL.invoke([HumanMessage(reflection_prompt)])
         reflection = reflection_response.content.strip()
         print("=========REFLECTION=========\n", reflection)
     else:
@@ -330,6 +343,7 @@ def plan(state: ReWOOState) -> Command[Literal["master"]]:
         extra_dict = {
             "needs_replan": False,
             "results": {},
+            "sources": None,
             "result": None,
             "intermediate_result": None,
             "search_query": None,
@@ -371,7 +385,7 @@ async def search(state: ReWOOState) -> Command[Literal["master", "replan"]]:
     source_processor = SourceProcessor(reranker=RERANKER_TYPE)
 
     print("Processing sources and building context...")
-    max_sources = 2
+    max_sources = MAX_SOURCES_PER_SEARCH
     processed_sources = await source_processor.process_sources(
         sources,
         max_sources,
@@ -400,7 +414,8 @@ async def search(state: ReWOOState) -> Command[Literal["master", "replan"]]:
         result = response
         print("\n======NOT SATISFACTORY RESULT=======\n", result)
         return Command(
-            goto="replan"
+            goto="master",
+            update={"needs_replan": True}
         )
 
     print("Search completed, returning to master")
@@ -413,7 +428,10 @@ async def search(state: ReWOOState) -> Command[Literal["master", "replan"]]:
 
     return Command(
         goto="master",
-        update={"results": result_dict}
+        update={
+            "results": result_dict,
+            "sources": processed_sources.get('organic', [])
+        }
     )
 
 
@@ -442,7 +460,8 @@ def code(state: ReWOOState) -> Command[Literal["master", "replan"]]:
     if result is None:
         print("Code execution failed, replanning...")
         return Command(
-            goto="replan"
+            goto="master",
+            update={"needs_replan": True}
         )
 
     # Update results with code output
@@ -478,11 +497,16 @@ def solve(state: ReWOOState) -> Command[Literal["master"]]:
     
     # Generate final solution
     prompt = SOLVER_PROMPT.format(plan=plan, task=state["task"])
-    result = COMMON_MODEL.invoke(prompt)
+    result = PLAN_MODEL.invoke(prompt)
+    explaination = COMMON_MODEL.invoke(EXPLAINATION_ANSWER.format(plan=plan, result=result.content, task=state["task"]))
+
 
     return Command(
         goto="master",
-        update={"result": result.content}
+        update={
+            "result": result.content,
+            "explaination": explaination.content
+        }
     )
 
 
