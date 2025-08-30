@@ -1,11 +1,11 @@
-# DeepSearch Frontend
+# OpenProbe Frontend
 
-A modern, responsive web interface for the DeepSearch AI system built with Next.js 14, TypeScript, and Tailwind CSS.
+A modern, responsive web interface for the **OpenProbe AI system**, featuring the powerful **DeepSearch module** for advanced AI reasoning. Built with Next.js 14, TypeScript, and Tailwind CSS.
 
 ## Features
 
 - 🔍 **Google-like Search Interface**: Clean, intuitive search experience
-- 🧠 **Real-time Thinking Process**: Collapsible dropdown showing AI's step-by-step reasoning
+- 🧠 **Real-time Thinking Process (Powered by DeepSearch)**: Collapsible dropdown showing AI's step-by-step reasoning and deep search capabilities
 - ⚡ **WebSocket Integration**: Live updates for search progress
 - 📱 **Responsive Design**: Works seamlessly on desktop, tablet, and mobile
 - 🎨 **Modern UI**: Built with shadcn/ui components and Tailwind CSS
@@ -70,14 +70,14 @@ A modern, responsive web interface for the DeepSearch AI system built with Next.
 
 ### Key Files
 - `src/app/page.tsx` - Main page component
-- `src/hooks/useSearch.tsx` - Search state management
-- `src/hooks/useWebSocket.tsx` - WebSocket connection
+- `src/hooks/useSearch.tsx` - Search state management for DeepSearch results
+- `src/hooks/useWebSocket.tsx` - WebSocket connection for real-time DeepSearch updates
 - `src/lib/api.ts` - Backend API client
 - `src/types/` - TypeScript type definitions
 
 ## Configuration
 
-The frontend automatically connects to the backend API. Default configuration:
+The frontend automatically connects to the backend API, which in turn integrates with the OpenProbe DeepSearch module. Default configuration:
 - **API URL**: `http://localhost:8000`
 - **WebSocket URL**: `ws://localhost:8000`
 - **Auto-reconnect**: Enabled with exponential backoff

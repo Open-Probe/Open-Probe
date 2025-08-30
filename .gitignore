@@ -174,7 +174,8 @@ cython_debug/
 .pypirc
 
 # Exclude frontend directory and related files
-frontend/
+frontend/node_modules
+frontend/.next
 
 # Exclude evaluation outputs and large data files
 evals/output/

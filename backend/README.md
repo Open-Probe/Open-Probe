@@ -1,13 +1,14 @@
-# DeepSearch Backend API
+# OpenProbe Backend API
 
-FastAPI backend service for the DeepSearch AI system, providing real-time search capabilities with WebSocket communication.
+FastAPI backend service for the **OpenProbe AI system**, specifically designed to integrate with and expose the powerful **DeepSearch module** for advanced AI reasoning and real-time search capabilities with WebSocket communication.
 
 ## Features
 
 - 🚀 **FastAPI Framework**: High-performance async API
-- 🔄 **Real-time Updates**: WebSocket integration for live search progress
+- 🧠 **DeepSearch Integration**: Seamlessly connects to the OpenProbe DeepSearch module for AI reasoning
+- 🔄 **Real-time Updates**: WebSocket integration for live search progress and DeepSearch events
 - 💾 **In-memory Sessions**: No database required, lightweight deployment
-- 🔍 **DeepSearch Integration**: Direct connection to the AI reasoning system
+- 🔍 **OpenProbe Integration**: Direct connection to the AI reasoning system
 - 📊 **Health Monitoring**: Built-in health checks and statistics
 - 🛡️ **Error Handling**: Comprehensive error management and logging
 
@@ -63,27 +64,27 @@ FastAPI backend service for the DeepSearch AI system, providing real-time search
 
 ### Core Services
 
-- **SearchService**: Orchestrates search operations
-- **SessionManager**: Manages in-memory search sessions
+- **SearchService**: Orchestrates search operations, utilizing the DeepSearch module
+- **SessionManager**: Manages in-memory search sessions for DeepSearch queries
 - **WebSocketManager**: Handles real-time client connections
-- **DeepSearchAdapter**: Interfaces with the AI reasoning system
+- **DeepSearchAdapter**: Interfaces with the core OpenProbe DeepSearch AI reasoning system
 
 ### Data Flow
 
 ```
-Client Request → SearchService → DeepSearchAdapter → AI Graph
+Client Request → SearchService → DeepSearchAdapter → OpenProbe DeepSearch AI Graph
                      ↓
 WebSocket Updates ← WebSocketManager ← Session Updates
 ```
 
-## Integration with DeepSearch
+## Integration with OpenProbe DeepSearch
 
-The backend integrates seamlessly with the existing DeepSearch system:
+The backend integrates seamlessly with the existing OpenProbe DeepSearch system:
 
-- **Graph Execution**: Uses the same `graph.ainvoke()` method as `test_deepsearch.py`
-- **State Management**: Maintains the same state structure for compatibility
-- **Real-time Streaming**: Converts graph events to WebSocket messages
-- **Error Handling**: Graceful degradation when AI system is unavailable
+- **Graph Execution**: Uses the same `graph.ainvoke()` method from the DeepSearch module as `test_deepsearch.py`
+- **State Management**: Maintains the same state structure for compatibility with DeepSearch operations
+- **Real-time Streaming**: Converts DeepSearch graph events to WebSocket messages for the frontend
+- **Error Handling**: Graceful degradation when the DeepSearch AI system is unavailable or encounters issues
 
 ## Configuration
 
@@ -186,9 +187,9 @@ All errors include:
 ### Common Issues
 
 1. **Import Error for DeepSearch modules**:
-   - Ensure the backend is run from the project root
+   - Ensure the backend is run from the project root and `src/deepsearch/` modules are correctly installed and accessible.
    - Check that `src/deepsearch/` modules are available
-   - The system will run in mock mode if modules are unavailable
+   - The system will run in mock mode if DeepSearch modules are unavailable
 
 2. **WebSocket Connection Failed**:
    - Verify the server is running on the correct port
