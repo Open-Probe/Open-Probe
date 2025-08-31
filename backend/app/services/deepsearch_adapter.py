@@ -162,7 +162,7 @@ class DeepSearchAdapter:
             return 'Creating step-by-step research plan', self._format_plan(state.get('plan_string', ''), state.get('steps', []))
         elif node_name == 'search':
             query = state.get('search_query', '')
-            title = f"Searching: {query[:60]}{'...' if len(query) > 60 else ''}" if query else 'Performing web search'
+            title = f"Searching: {query[:100]}{'...' if len(query) > 100 else ''}" if query else 'Performing web search'
             content = f"Executing web search to find information about:\n{query}" if query else "Conducting web research to gather relevant information."
             return title, content
         elif node_name == 'code':

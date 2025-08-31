@@ -22,7 +22,8 @@ from .prompt import (
     REFLECTION_INSTRUCTION,
     QUESTION_REWORD_INSTRUCTION,
     COMMONSENSE_INSTRUCTION,
-    EXPLAINATION_ANSWER
+    EXPLANATION_ANSWER
+,
 )
 from .utils import extract_content, remove_think_cot
 from dotenv import load_dotenv
@@ -498,7 +499,7 @@ def solve(state: ReWOOState) -> Command[Literal["master"]]:
     # Generate final solution
     prompt = SOLVER_PROMPT.format(plan=plan, task=state["task"])
     result = PLAN_MODEL.invoke(prompt)
-    explaination = COMMON_MODEL.invoke(EXPLAINATION_ANSWER.format(plan=plan, result=result.content, task=state["task"]))
+    explaination = COMMON_MODEL.invoke(EXPLANATION_ANSWER.format(plan=plan, result=result.content, task=state["task"]))
 
 
     return Command(

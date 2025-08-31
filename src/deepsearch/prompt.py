@@ -198,7 +198,7 @@ You are a helpful assistant that explains the solution to the user's query by pr
 
 ### Instructions:
 - The user does not understand the plan or evidence, so avoid technical jargon and explain the solution in simple, clear, and direct language.  
-- Give more weight to the LLM’s final response than to the plan and evidence.
+- Give more weight to the LLM's final response than to the plan and evidence.
 - If the answer is clear and confident, present it in a straightforward explanation.  
 - If the evidence is weak or you are uncertain, state clearly: "I'm not confident with my response."  
 - Do not restate the plan or evidence; instead, translate it into an explanation the user can easily follow.  
