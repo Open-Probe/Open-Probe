@@ -79,7 +79,7 @@ class SearchAPI(ABC):
     def get_sources(
         self,
         query: str,
-        num_results: int = 8,
+        num_results: int = 4,
         stored_location: Optional[str] = None
     ) -> SearchResult[Dict[str, Any]]:
         """Get search results from the API"""
@@ -114,7 +114,7 @@ class SerperAPI(SearchAPI):
 
         Args:
             query: Search query string
-            num_results: Number of results to return (default: 8, max: 10)
+            num_results: Number of results to return (default: 4, max: 10)
             stored_location: Optional location string
 
         Returns:
@@ -184,7 +184,7 @@ class SearXNGAPI(SearchAPI):
     def get_sources(
         self,
         query: str,
-        num_results: int = 8,
+        num_results: int = 4,
         stored_location: Optional[str] = None
     ) -> SearchResult[Dict[str, Any]]:
         """
@@ -192,7 +192,7 @@ class SearXNGAPI(SearchAPI):
 
         Args:
             query: Search query string
-            num_results: Number of results to return (default: 8)
+            num_results: Number of results to return (default: 4)
             stored_location: Optional location string (may not be supported by all instances)
 
         Returns:
