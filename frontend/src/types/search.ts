@@ -6,7 +6,7 @@ export interface SourceInfo {
 
 export interface ThinkingStep {
   id: string;
-  type: 'plan' | 'search' | 'code' | 'solve' | 'replan';
+  type: 'plan' | 'search' | 'code' | 'llm' | 'solve' | 'replan';
   status: 'pending' | 'running' | 'completed' | 'failed';
   title: string;
   content: string;
@@ -14,6 +14,7 @@ export interface ThinkingStep {
   metadata?: {
     searchQuery?: string;
     codeResult?: string;
+    llmResult?: string;
     planSteps?: string[];
     sources?: (string | SourceInfo)[];
     error?: string;
@@ -53,6 +54,7 @@ export interface SearchState extends ChatState {
   clearSearch: () => void;
   cancelSearch: () => void;
   updateStep: (step: ThinkingStep) => void;
+  completeRunningSteps: () => void;
   setFinalAnswer: (answer: string) => void;
   setError: (error: string | null) => void;
   setConnected: (connected: boolean) => void;
