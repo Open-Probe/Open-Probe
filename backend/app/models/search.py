@@ -14,6 +14,7 @@ class StepType(str, Enum):
     PLAN = "plan"
     SEARCH = "search"
     CODE = "code"
+    LLM = "llm"
     SOLVE = "solve"
     REPLAN = "replan"
 
@@ -66,6 +67,7 @@ class CancelResponse(BaseModel):
 class StepMetadata(BaseModel):
     search_query: Optional[str] = Field(None, alias="searchQuery")
     code_result: Optional[str] = Field(None, alias="codeResult")
+    llm_result: Optional[str] = Field(None, alias="llmResult")
     plan_steps: Optional[List[str]] = Field(None, alias="planSteps")
     error: Optional[str] = None
     execution_time: Optional[float] = Field(None, alias="executionTime")
