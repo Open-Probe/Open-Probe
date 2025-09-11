@@ -18,7 +18,8 @@ export function ChatInput({ disabled = false }: ChatInputProps) {
   const { ensureConnection } = useWebSocket();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const isSearching = currentSearch?.status === 'thinking';
+  const isSearching = (currentSearch?.status === 'thinking') ||
+    (currentSearch?.steps?.some((s) => s.status === 'running') ?? false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

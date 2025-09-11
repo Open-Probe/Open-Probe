@@ -3,7 +3,7 @@
 import { useSearch } from '@/hooks/useSearch';
 import { ThinkingProcess } from './ThinkingProcess';
 import { FinalAnswer } from './FinalAnswer';
-import { AlertCircle, Wifi, WifiOff } from 'lucide-react';
+import { AlertCircle, CheckCircle, Wifi, WifiOff } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 
 export function SearchResults() {
@@ -13,33 +13,71 @@ export function SearchResults() {
     return null;
   }
 
-  const isThinking = currentSearch.status === 'thinking';
+  // Thinking when any non-finalization step is running
+  const isThinking = currentSearch.status === 'thinking' ||
+    currentSearch.steps.some(s => s.status === 'running' && s.type !== 'solve');
+  
   const hasError = currentSearch.status === 'error' || !!error;
-  const isCompleted = currentSearch.status === 'completed';
+  
+  // Enhanced completion detection: prioritize final answer presence
+  const isCompleted = Boolean(
+    currentSearch.status === 'completed' ||
+    (currentSearch.finalAnswer && currentSearch.finalAnswer.trim().length > 0)
+  );
 
   return (
     <div className="w-full space-y-6 animate-fade-in">
-      {/* Current Query Display */}
+      {/* Current Query Display with Enhanced Loading States */}
       {currentSearch && (
-        <Card className="w-full max-w-4xl mx-auto bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-100">
+        <Card className={`w-full max-w-4xl mx-auto transition-all duration-300 ${
+          isThinking 
+            ? 'bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200 ring-2 ring-blue-100' 
+            : hasError 
+              ? 'bg-gradient-to-r from-red-50 to-pink-50 border-red-200'
+              : 'bg-gradient-to-r from-green-50 to-emerald-50 border-green-200'
+        }`}>
           <CardContent className="p-4">
             <div className="flex items-start gap-3">
-              <div className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex-shrink-0">
+              <div className={`flex items-center justify-center w-8 h-8 rounded-full flex-shrink-0 ${
+                isThinking 
+                  ? 'bg-blue-100 text-blue-600' 
+                  : hasError
+                    ? 'bg-red-100 text-red-600'
+                    : 'bg-green-100 text-green-600'
+              }`}>
                 <span className="text-sm font-medium">Q</span>
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="font-medium text-blue-900 mb-1">Your Question</h3>
-                <p className="text-blue-800 leading-relaxed">
+                <h3 className={`font-medium mb-1 ${
+                  isThinking 
+                    ? 'text-blue-900' 
+                    : hasError
+                      ? 'text-red-900'
+                      : 'text-green-900'
+                }`}>Your Question</h3>
+                <p className={`leading-relaxed ${
+                  isThinking 
+                    ? 'text-blue-800' 
+                    : hasError
+                      ? 'text-red-800'
+                      : 'text-green-800'
+                }`}>
                   "{currentSearch.query}"
                 </p>
                 {isThinking && (
-                  <div className="flex items-center gap-2 mt-2 text-sm text-blue-600">
+                  <div className="flex items-center gap-2 mt-3 text-sm text-blue-600 bg-blue-100/50 rounded-md px-3 py-2">
                     <div className="flex gap-1">
-                      <div className="w-1 h-1 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                      <div className="w-1 h-1 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                      <div className="w-1 h-1 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                      <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                      <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                      <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
                     </div>
-                    <span>Researching your question...</span>
+                    <span className="font-medium">Researching your question...</span>
+                  </div>
+                )}
+                {isCompleted && (
+                  <div className="flex items-center gap-2 mt-3 text-sm text-green-600 bg-green-100/50 rounded-md px-3 py-2">
+                    <CheckCircle className="w-4 h-4" />
+                    <span className="font-medium">Research completed!</span>
                   </div>
                 )}
               </div>
@@ -61,17 +99,27 @@ export function SearchResults() {
         </Card>
       )}
 
-      {/* Error display */}
+      {/* Enhanced Error Display */}
       {hasError && (
-        <Card className="w-full max-w-4xl mx-auto border-red-200 bg-red-50">
-          <CardContent className="p-4">
-            <div className="flex items-start gap-3 text-red-700">
-              <AlertCircle className="h-5 w-5 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-medium text-sm">Search failed</p>
-                <p className="text-sm mt-1">
-                  {currentSearch.error || error || 'An unexpected error occurred'}
+        <Card className="w-full max-w-4xl mx-auto border-red-200 bg-red-50 shadow-md animate-shake">
+          <CardContent className="p-5">
+            <div className="flex items-start gap-4 text-red-700">
+              <div className="flex items-center justify-center w-10 h-10 rounded-full bg-red-100 flex-shrink-0">
+                <AlertCircle className="h-5 w-5" />
+              </div>
+              <div className="flex-1">
+                <h4 className="font-semibold text-base text-red-800 mb-1">Search Failed</h4>
+                <p className="text-sm mb-3 text-red-700">
+                  {currentSearch.error || error || 'An unexpected error occurred while processing your request.'}
                 </p>
+                <div className="text-xs text-red-600 bg-red-100/50 rounded p-2">
+                  <strong>What you can try:</strong>
+                  <ul className="list-disc list-inside mt-1 space-y-1">
+                    <li>Check your internet connection</li>
+                    <li>Try rephrasing your question</li>
+                    <li>Wait a moment and try again</li>
+                  </ul>
+                </div>
               </div>
             </div>
           </CardContent>
@@ -82,6 +130,7 @@ export function SearchResults() {
       <ThinkingProcess
         steps={currentSearch.steps}
         isThinking={isThinking}
+        isCompleted={isCompleted}
         query={currentSearch.query}
       />
 

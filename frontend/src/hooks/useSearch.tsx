@@ -68,6 +68,11 @@ export const useSearch = create<SearchState>((set, get) => ({
     const { currentSearch, messages } = get();
     if (!currentSearch) return;
 
+    // Don't add completely new steps if search is completed, but allow updates to existing steps
+    if (currentSearch.status === 'completed' && !currentSearch.steps.some(s => s.id === step.id)) {
+      return;
+    }
+
     const updatedSearch = {
       ...currentSearch,
       steps: currentSearch.steps.some(s => s.id === step.id)
@@ -88,24 +93,52 @@ export const useSearch = create<SearchState>((set, get) => ({
     });
   },
 
+  // Mark any running steps as completed (useful when we receive a final completion event)
+  completeRunningSteps: () => {
+    const { currentSearch, messages } = get();
+    if (!currentSearch) return;
+
+    const updatedSteps = currentSearch.steps.map((s) =>
+      s.status === 'running' ? { ...s, status: 'completed' as const } : s
+    );
+
+    const updatedSearch = { ...currentSearch, steps: updatedSteps };
+
+    const updatedMessages = messages.map((msg) =>
+      msg.type === 'assistant' && msg.searchResult?.id === currentSearch.id
+        ? { ...msg, searchResult: updatedSearch }
+        : msg
+    );
+
+    set({ currentSearch: updatedSearch, messages: updatedMessages });
+  },
+
   setFinalAnswer: (answer: string) => {
     const { currentSearch, messages } = get();
     if (!currentSearch) return;
 
+    // Complete all running steps, especially solve steps that might still be running
+    const completedSteps = currentSearch.steps.map(step => 
+      step.status === 'running' || (step.type === 'solve' && step.status !== 'completed') 
+        ? { ...step, status: 'completed' as const } 
+        : step
+    );
+
     const updatedSearch: SearchResult = {
       ...currentSearch,
+      steps: completedSteps,
       status: 'completed' as const,
-      finalAnswer: answer,
+      finalAnswer: answer.trim(), // Trim whitespace here
       endTime: new Date(),
     };
 
     // Update the assistant message with the final answer
     const updatedMessages = messages.map(msg => 
       msg.type === 'assistant' && msg.searchResult?.id === currentSearch.id
-        ? { ...msg, content: answer, searchResult: updatedSearch }
+        ? { ...msg, content: answer.trim(), searchResult: updatedSearch }
         : msg
     );
-
+    
     set({
       currentSearch: updatedSearch,
       messages: updatedMessages,

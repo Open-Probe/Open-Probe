@@ -108,7 +108,7 @@ export function FinalAnswer({ searchResult, className }: FinalAnswerProps) {
         <div className="prose max-w-none">
           <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-100">
             <div className="whitespace-pre-wrap text-gray-800 leading-relaxed">
-              {searchResult.finalAnswer}
+              {searchResult.finalAnswer?.trim()}
             </div>
           </div>
         </div>

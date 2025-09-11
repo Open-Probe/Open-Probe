@@ -18,7 +18,8 @@ export const useWebSocket = () => {
     setFinalAnswer, 
     setError, 
     clearSearch,
-    cancelSearch
+    cancelSearch,
+    completeRunningSteps
   } = useSearch();
 
   const handleMessage = useCallback((message: WebSocketMessage) => {
@@ -45,6 +46,8 @@ export const useWebSocket = () => {
 
       case 'search_complete': {
         const completeMessage = message as SearchCompleteMessage;
+        // Ensure any running steps are marked completed so the UI reaches 100%
+        completeRunningSteps();
         setFinalAnswer(completeMessage.data.result);
         break;
       }

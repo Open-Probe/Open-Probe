@@ -80,14 +80,15 @@ export default function HomePage() {
             {[
               "What is the population of the largest city in the country where the 2024 Olympics were held?",
               "If I multiply the number of moons of Jupiter by the year the Berlin Wall fell, what do I get?",
-              "What was the profession of the spouse of the author who wrote 'Do Androids Dream of Electric Sheep?'"
+              "What did Russian President Vladimir Putin say about Western troops in Ukraine on Sept 5, 2025?",
+              "Why did Elon Musk face criticism in September 2025 over Starlink?"
             ].map((example, index) => (
               <button
                 key={index}
                 onClick={() => handleExampleClick(example)}
                 className="text-xs bg-muted/50 hover:bg-muted transition-colors px-3 py-2 rounded-full text-muted-foreground hover:text-foreground cursor-pointer"
               >
-                "{example.length > 60 ? example.substring(0, 60) + '...' : example}"
+                "{example.length > 10 ? example: example}"
               </button>
             ))}
           </div>
