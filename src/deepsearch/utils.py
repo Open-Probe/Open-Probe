@@ -1,5 +1,6 @@
 import json
 import re
+from datetime import datetime
 
 
 def extract_plan_result(json_string):
@@ -43,3 +44,8 @@ def extract_last_json_block(markdown_text):
 def remove_think_cot(input_str):
     cleaned_str = re.sub(r"<think>.*?</think>\s*", "", input_str, flags=re.DOTALL)
     return cleaned_str.strip()
+
+
+def get_current_date():
+    """Return the current date formatted as 'Month Day, Year'"""
+    return datetime.now().strftime('%B %d, %Y')
