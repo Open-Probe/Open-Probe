@@ -172,3 +172,23 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Exclude frontend directory and related files
+frontend/node_modules
+frontend/.next
+
+# Exclude evaluation outputs and large data files
+evals/output/
+output/
+
+# Exclude system files
+.DS_Store
+*.DS_Store
+
+# Exclude large data files
+*.jsonl
+*.xlsx
+
+# Exclude temporary and build files
+*.out
+*.log

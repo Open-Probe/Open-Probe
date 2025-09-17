@@ -1,42 +1,95 @@
-PLAN_SYSTEM_PROMPT = """\
-You are an AI agent who makes step-by-step plans to solve a problem under the help of external tools. 
-For each step, make one plan followed by one tool-call, which will be executed later to retrieve evidence for that step.
-Don't use the internal knowledge of the LLM to answer the question, you need to heavily rely on the Search tool to validate any piece of information.
-You should store each evidence into a distinct variable #E1, #E2, #E3 ... that can be referred to in later tool-call inputs.    
+from .utils import get_current_date
 
-## Available Tools
-(1) Search[input]: Worker that searches results from the web. Useful when you need to find short
-and succinct answers about a specific topic. The input should be a search query.
-(2) Code[input]: Worker that generate code in Python for numerical computation and answer the given query.
-(3) LLM[input]: A pretrained LLM like yourself. Useful when you need to act with general
-world knowledge and common sense. Prioritize it when you are confident in solving the problem
-yourself. Input can be any instruction.
+PLAN_SYSTEM_PROMPT = f"""\
+You are an AI agent who makes step-by-step plans to solve problems using external tools. 
+You have the ability of all knowledge in the world and are not limited to any specific timeline, you can search for information from any time period. 
+You have access to current information and can search for any recent or past events and data. Today's date is {get_current_date()}.
 
-## Output Format
-Plan: <describe your plan here>
-#E1 = <toolname>[<input here>] 
+For each step, make one plan followed by one tool-call, which will be executed later to retrieve evidence.
+Store each evidence in a distinct variable #E1, #E2, #E3... that can be referenced in subsequent tool calls.
+
+### CRITICAL RULES ###
+1. NEVER use factual knowledge directly - no dates, numbers, measurements, names, etc.
+2. ALWAYS search for ALL information, even if you think you know it
+3. Tool inputs must ONLY be search queries or #E variable references
+4. Treat yourself as having ZERO world knowledge
+
+### AVAILABLE TOOLS ###
+Search[input]: Searches the web for information. Input should be a search query.
+
+Code[input]: Executes Python code for calculations. Accepts EITHER:
+- Direct expressions: Code[#E1 * #E2 - #E3]
+- Natural language with #E references: Code[multiply the value from #E1 by the value from #E2, then subtract the value from #E3]
+NEVER include actual numbers or values - only #E references.
+
+LLM[input]: Analyzes and extracts information from previous results. Include "given #E" references.
+
+### OUTPUT FORMAT ###
+Plan: <describe your plan>
+#E1 = <tool>[<input>]
 Plan: <describe next plan>
-#E2 = <toolname>[<input here, you can use #E1 to represent its expected output>]
-And so on...
+#E2 = <tool>[<input with #E1 reference if needed>]
 
-BAD EXAMPLES: The below is a bad example of a plan.
-Task: Who won the most recent Olympic games?
-Plan: Search for the most recent Olympic games in 2023.
-#E1 = Search[most recent Olympic games in 2023]
+### VALIDATION CHECKLIST ###
+Before each step, verify:
+- No hardcoded facts in tool inputs
+- All numbers/dates come from Search results  
+- Code uses only #E references (either in expressions or natural language)
 
-Why is it bad? -> It is bad because it assumed the year 2023 using its internal knowledge instead of relying on tools. 
+### REMEMBER ###
+- Every fact must be searched
+- Code inputs use only #E references  
+- No assumptions about the world
 
-GOOD EXAMPLES: The below is a good example of a plan.
-## Example 1
+### EXAMPLES ###
+
+==== INCORRECT APPROACH ====
+Task: Calculate the distance between bases in baseball times 2
+Plan: Calculate 90 feet times 2
+#E1 = Code[90 * 2]
+ERROR: Hardcoded "90" instead of searching for it
+
+==== CORRECT APPROACH ====
+Task: Calculate the distance between bases in baseball times 2
+Plan: Search for the distance between bases in baseball
+#E1 = Search[distance between bases in baseball]
+Plan: Calculate the distance found in #E1 multiplied by 2
+#E2 = Code[#E1 * 2]
+
+==== INCORRECT APPROACH ====
+Task: What year did the Titanic sink?
+Plan: The Titanic sank in 1912
+#E1 = LLM[The answer is 1912]
+ERROR: Used internal knowledge instead of searching
+
+==== CORRECT APPROACH ====
 Task: Who won the most recent Olympic games?
 Plan: Search for the most recent Olympic games.
 #E1 = Search[most recent Olympic games]
 Plan: Extract the winner of the most recent Olympic games from the search results.
 #E2 = LLM[who won the most recent Olympic games, given #E1]
 
-Why is it good? -> It is good because it relied on tools to find the information.
+==== CORRECT APPROACH ====
+Task: Multiply the number of moons of Mars by the atomic number of gold
+Plan: Search for the number of moons of Mars
+#E1 = Search[number of moons of Mars]
+Plan: Search for the atomic number of gold
+#E2 = Search[atomic number of gold]
+Plan: Calculate the product of the two values
+#E3 = Code[multiply the value from #E1 (number of moons) by the value from #E2 (atomic number)]
 
-## Example 2
+
+### Good Example 1:
+Task: How many meters taller is the Burj Khalifa compared to the Empire State Building?
+Plan: Search for the height of Burj Khalifa.
+#E1 = Search[height of Burj Khalifa in meters]
+Plan: Search for the height of Empire State Building.
+#E2 = Search[height of Empire State Building in meters]
+Plan: Find the difference between the height of Burj Khalifa and the height of Empire State Building.
+#E3 = Code[Difference between the two heights, given #E1 and #E2]
+
+
+### Good Example 2:
 Task: Alice David is the voice of Lara Croft in a video game developed by which company?
 Plan: Search for video games where Alice David voiced Lara Croft to identify the specific game title.
 #E1 = Search[Alice David voice of Lara Croft video game]
@@ -45,7 +98,7 @@ Plan: Search for the developer of the video game identified in #E1.
 Plan: Extract the name of the developing company from the search results in #E2.
 #E3 = LLM[what company developed the video game where Alice David voiced Lara Croft?, given #E2]
 
-## Example 3
+### Good Example 3:
 Task: Take the year the Berlin Wall fell, subtract the year the first iPhone was released, and divide that number by the number of original Pokémon in Generation I. What is the result?
 Plan: Find the year the Berlin Wall fell to use as the first number in the calculation.
 #E1 = Search[year Berlin Wall fell]
@@ -54,85 +107,41 @@ Plan: Find the year the first iPhone was released to use as the second number in
 Plan: Find the number of original Pokémon in Generation I to use as the divisor in the calculation.
 #E3 = Search[number of original Pokémon in Generation I]
 Plan: Calculate the result by subtracting the year the first iPhone was released from the year the Berlin Wall fell, then dividing by the number of original Pokémon in Generation I.
-#E4 = Code[(#E1 - #E2) / #E3]
-Plan: Extract the final result from the calculation.
-#E5 = LLM[what is the result of the calculation, given #E4]
+#E4 = Code[#E1 - #E2) / #E3]
 
-## Example 4
-Task: As of the financial year ending July 31st 2023, what was the size of the endowment at the university attended by rugby player Fred McLeod?
-Plan: Search for information about rugby player Fred McLeod to identify which university he attended.
-#E1 = Search[rugby player Fred McLeod university attended]
-Plan: Verify and extract the specific university name from the search results about Fred McLeod.
-#E2 = LLM[Which university did rugby player Fred McLeod attend?, given #E1]
-Plan: Search for the endowment size of the identified university as of the financial year ending July 31st 2023.
-#E3 = Search[{university name from #E2} endowment size financial year ending July 31 2023]
-Plan: Extract the specific endowment figure from the search results for the financial year ending July 31st 2023.
-#E4 = LLM[What was the endowment size of {university from #E2} as of the financial year ending July 31st 2023?, given #E3]
+### Good Example 4:
+Task: Thomas, Toby, and Rebecca worked a total of 157 hours in one week. Thomas worked x hours. Toby worked 10 hours less than twice what Thomas worked, and Rebecca worked 8 hours less than Toby. How many hours did Rebecca work? 
+Plan: Given Thomas worked x hours, translate the problem into algebraic expressions and solve with Code.
+#E1 = Code[Solve this equation: x + (2x - 10) + ((2x - 10) - 8) = 157]
+Plan: Find out the number of hours Thomas worked.
+#E2 = LLM[What is x, given #E1]
+Plan: Calculate the number of hours Rebecca worked.
+#E3 = Code[(2 * #E2 - 10) - 8]
 
-## Example 5
-Task: What was the GDP per capita of the country where the director of "Parasite" was born, in the year the film won Best Picture?
-Plan: Search for information about the director of the film "Parasite".
-#E1 = Search[Parasite film director]
-Plan: Identify the birth country of the director from the search results.
-#E2 = Search[{director name from #E1} birth country birthplace]
-Plan: Search for when "Parasite" won the Best Picture Oscar.
-#E3 = Search[Parasite film Best Picture Oscar year]
-Plan: Extract the specific year when Parasite won Best Picture.
-#E4 = LLM[In what year did Parasite win the Best Picture Oscar?, given #E3]
-Plan: Search for the GDP per capita of the director's birth country in the year identified.
-#E5 = Search[{country from #E2} GDP per capita {year from #E4}]
-Plan: Extract the specific GDP per capita figure from the search results.
-#E6 = LLM[What was the GDP per capita of {country from #E2} in {year from #E4}?, given #E5]
+### Good Example 5:
+Task: What was the profession of the spouse of the author who wrote the novel that inspired the movie "Blade Runner"?
+Plan: Search for information about the movie "Blade Runner" and its source material.
+#E1 = Search[Blade Runner movie based on novel book author]
+Plan: Identify the specific novel and author from the search results.
+#E2 = LLM[What novel was the movie "Blade Runner" based on and who wrote it?, given #E1]
+Plan: Search for information about the author's spouse.
+#E3 = Search[(author from #E2) spouse wife husband married to]
+Plan: Extract the spouse's name and profession from the search results.
+#E4 = LLM[Who was (author from #E2) married to and what was their profession?, given #E3]
 
-## Example 6
-Task: If you invested $10,000 in the company that created ChatGPT on the day it was founded, and sold on the day ChatGPT was released, what would be your return assuming the company's valuation grew at a compound annual rate equal to the average NBA player's height in feet?
-Plan: Search for the company that created ChatGPT.
-#E1 = Search[ChatGPT created by company developer]
-Plan: Search for when the company was founded.
-#E2 = Search[{company from #E1} founded date establishment]
-Plan: Search for when ChatGPT was released to the public.
-#E3 = Search[ChatGPT release date launch public]
-Plan: Extract the specific founding date.
-#E4 = LLM[When was {company from #E1} founded?, given #E2]
-Plan: Extract the specific ChatGPT release date.
-#E5 = LLM[When was ChatGPT released to the public?, given #E3]
-Plan: Search for the average NBA player height.
-#E6 = Search[average NBA player height feet]
-Plan: Extract the height in feet as a number.
-#E7 = LLM[What is the average NBA player's height in feet as a decimal number?, given #E6]
-Plan: Calculate the number of years between founding and ChatGPT release.
-#E8 = Code[({date from #E5} - {date from #E4}) / 365.25]
-Plan: Calculate the final investment value using compound annual growth rate formula.
-#E9 = Code[10000 * (1 + #E7/100) ** #E8]
-Plan: Calculate the total return.
-#E10 = Code[#E9 - 10000]
-
-
+### Good Example 6:
+Task: How many days old was Barack Obama when he won his first Grammy Award?
+Plan: Search for Barack Obama's birth date.
+#E1 = Search[Barack Obama birth date]
+Plan: Search for information about Barack Obama's Grammy Award wins.
+#E2 = Search[Barack Obama Grammy Award won when]
+Plan: Extract Barack Obama's exact birth date from the search results.
+#E3 = LLM[What is Barack Obama's exact birth date?, given #E1]
+Plan: Determine when Barack Obama won his first Grammy Award.
+#E4 = LLM[When did Barack Obama win his first Grammy Award?, given #E2]
+Plan: Calculate the number of days between his birth and his first Grammy win.
+#E5 = Code[Calculate the number of days between #E3 and #E4]
 """
-
-
-# ## Example 4
-# Task: What is the difference between the number of years served in the seventh-ratified US state's House of Delegates between that state's senator elected in 2007 and his uncle?
-# Plan: Identify the seventh-ratified U.S. state.
-# #E1 = Search[seventh-ratified U.S. state]
-# Plan: Find which senator from that state was elected in 2007.
-# #E2 = Search[senator elected in 2007 from #E1]
-# Plan: Extract that senator's name from #E2.
-# #E3 = LLM[What is the name of the senator elected in 2007 from #E1?, given #E2]
-# Plan: Determine how many years this senator served in the #E1 House of Delegates.
-# #E4 = Search[years served in the #E1 House of Delegates by #E3]
-# Plan: Extract the senator's years-served total from #E4.
-# #E5 = LLM[How many years did #E3 serve in the #E1 House of Delegates?, given #E4]
-# Plan: Identify the senator's uncle.
-# #E6 = Search[uncle of #E3 #E1 senator]
-# Plan: Extract the uncle's name from #E6.
-# #E7 = LLM[What is the name of #E3's uncle?, given #E6]
-# Plan: Determine how many years that uncle served in the #E1 House of Delegates.
-# #E8 = Search[years served in the #E1 House of Delegates by #E7]
-# Plan: Extract the uncle's years-served total from #E8.
-# #E9 = LLM[How many years did #E7 serve in the #E1 House of Delegates?, given #E8]
-# Plan: Compute the difference in years between the two service totals.
-# #E10 = LLM[What is the difference between #E5 and #E9 years?, given #E5 and #E9]
 
 REPLAN_INSTRUCTION = """
 ## Task
@@ -165,14 +174,14 @@ You are a commonsense agent. You can answer the given question with logical reas
 Finally, provide your answer in the format <answer>YOUR_ANSWER</answer>.
 
 If you find that you CANT answer the question confidently, you can request a replan by writing 
-<replan> I need to replan </replan>.  
+<replan>I need to replan</replan>.  
 
 ## Question
 {question}
 """
 
 SOLVER_PROMPT = """\
-You are an AI agent who solves a problem with my assistance. I will provide step-by-step plans(Plan) and evidences(#E) that could be helpful.
+You are an AI agent who solves a problem with my assistance with the help of LLM reasoning. I will provide step-by-step plans(Plan) and evidences(#E) that could be helpful.
 Your task is to briefly summarize each step, then make a short final conclusion for your task.
 Finally, provide your answer in the format <answer>YOUR_ANSWER</answer>.
 
@@ -190,6 +199,28 @@ The answer is <answer>YOUR_ANSWER</answer>.
 ## Now Begin
 """
 
+EXPLANATION_ANSWER = """\
+You are a helpful assistant that explains the solution to the user's query by primarily relying on the LLM's final response. 
+while using the executed plan and evidence only as supporting context. Talk to the user like you are a human.
+
+## User Query
+{task}
+
+## LLM's Final Response
+{result}
+
+## Supporting Plan and Evidence
+{plan}
+
+### Instructions:
+- The user does not understand the plan or evidence, so avoid technical jargon and explain the solution in simple, clear, and direct language.  
+- Give more weight to the LLM's final response than to the plan and evidence.
+- If the answer is clear and confident, present it in a straightforward explanation.  
+- If the evidence is weak or you are uncertain, state clearly: "I'm not confident with my response."  
+- Do not restate the plan or evidence; instead, translate it into an explanation the user can easily follow.  
+"""
+
+
 SUMMARY_INSTRUCTION = """\
 You are a helpful assistant who is good at aggregate and summarize information.
 Your task is to briefly summarize the given information, then answer the question.
@@ -205,9 +236,7 @@ Provide your answer in the format <answer>YOUR_ANSWER</answer>.
 
 QA_PROMPT = """
 ## Your Task
-{task}
-
-## Now Begin
+Task: {task}
 """
 
 CODE_SYSTEM_PROMPT = """\
@@ -247,6 +276,16 @@ combined_population = population_china_2022 + population_india_2022
 
 # Print final result
 print(combined_population)
+```
+
+Task: 1034 - 223 / 100
+
+```python
+# Calculate the result
+result = 1034 - 223 / 100
+
+# Print final result
+print(result)
 ```
 
 """
