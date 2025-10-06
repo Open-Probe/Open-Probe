@@ -1,13 +1,16 @@
 # OpenProbe - Advanced Agent-Based Search System
 
-OpenProbe is an agent-based search system that performs deep web searches to answer complex questions. It uses a web UI, a LangGraph-based agent orchestrator, and a comprehensive evaluation framework.
+OpenProbe is an opensource agent-based search system that performs deep web searches to answer complex questions. You can use any form of LLM model inference to use this system. It uses a LangGraph-based agent orchestrator, web UI made with Next.js, and a comprehensive evaluation framework.
+
+## 🎬 Here's how it looks like
+https://github.com/user-attachments/assets/9c83c64b-6480-410d-ae46-5a9a39fb16cc
+
 
 ## 🏗️ Architecture
 <img width="1084" height="490" alt="image" src="https://github.com/user-attachments/assets/d8636fd7-3add-4c10-aa01-044a4e90781f" />
 
 ## ✨ Features
 
-- **Interactive Web UI**: A Next.js-based interface for interacting with the agent.
 - **Deep Web Search**: Multi-step search process with automated planning and execution.
 - **Adaptive Replanning**: Revises search strategies when initial plans fall short.
 - **Reflection**: Explains why previous plans failed and how they were improved.
@@ -16,7 +19,6 @@ OpenProbe is an agent-based search system that performs deep web searches to ans
 - **Code Execution Tool**: Executes Python code in a local REPL to compute answers.
 - **Multi-Model Support**: Natively supports Google Gemini and any OpenAI-compatible models via providers like Lambda.
 - **Evaluation Framework**: Built-in system for testing search quality.
-- **CLI Interface**: A command-line tool for direct interaction with the search agent.
 
 ### Core Components
 
@@ -116,11 +118,6 @@ python -m src.deepsearch.cli search --max-replan 2 "What year was the first Uber
 # Run in interactive mode
 python -m src.deepsearch.cli search --interactive
 ```
-
-## 🔧 System Limitations
-
-- Default of 1 replanning attempt per query (configurable via `--max-replan`).
-- The Code tool runs Python code locally, which has security implications. Use with caution.
 
 ## 📁 Project Structure
 
