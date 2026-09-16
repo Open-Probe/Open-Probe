@@ -11,15 +11,21 @@ from dotenv import load_dotenv
 
 def batch_inputs(inputs, batch_size=32):
     for i in range(0, len(inputs), batch_size):
-        yield inputs[i:i + batch_size]
+        yield i, inputs[i:i + batch_size]
 
-def send_batched_requests(api_url, headers, data):
+def send_batched_requests(api_url, headers, data, batch_size=32):
+    """Rerank data["texts"] in batches, returning results indexed globally.
+
+    The server scores each batch independently and returns indices relative to
+    the batch it was handed, so every batch's indices are shifted by that
+    batch's offset before the results are merged.
+    """
     texts = data.get("texts")
     if not texts:
         raise ValueError("Missing 'texts' in data payload.")
 
     all_results = []
-    for batch in batch_inputs(texts, batch_size=32):
+    for offset, batch in batch_inputs(texts, batch_size=batch_size):
         # Clone the original data to avoid mutating the input
         batch_data = data.copy()
         batch_data["texts"] = batch
@@ -30,14 +36,14 @@ def send_batched_requests(api_url, headers, data):
 
             resp_data = response.json()
             print("Batch processed successfully.")
-            if isinstance(resp_data, list):
-                all_results.extend(resp_data)
-            else:
-                all_results.append(resp_data)
+            batch_results = resp_data if isinstance(resp_data, list) else [resp_data]
+            for item in batch_results:
+                if isinstance(item, dict) and "index" in item:
+                    all_results.append({**item, "index": item["index"] + offset})
         except requests.exceptions.RequestException as e:
             #raise RuntimeError(f"Error calling local AI API: {str(e)}")
             print(f"Error calling local AI API: {str(e)}")
-        
+
     return all_results
 
 class LocalReranker():
@@ -80,20 +86,23 @@ class LocalReranker():
         data = {
             "query": query,
             "texts": documents,
-            "top_n": 10
+            "top_n": top_k
         }
 
         print(f"reranker url={self.api_url}\n")
         print(f"query={query}\n")
-        print(f"before rerank, first 5 documents={documents[:5]}\n")  
-        # Get a single list of all responses
+        print(f"before rerank, first 5 documents={documents[:5]}\n")
+        # Get a single list of all responses, with indices into `documents`
         all_results = send_batched_requests(self.api_url, self.headers, data)
 
         print(f"length of reranked results: {len(all_results)}, top_k={top_k}\n")
- 
-        reranked_docs = []
-        for best_response in all_results[:top_k]:
-            reranked_docs.append(documents[best_response["index"]])
+
+        # Scores are only comparable once every batch's results are merged, so
+        # sort globally before taking the top_k.
+        scored = [r for r in all_results if 0 <= r["index"] < len(documents)]
+        scored.sort(key=lambda r: r.get("score", 0.0), reverse=True)
+
+        reranked_docs = [documents[r["index"]] for r in scored[:top_k]]
 
         rtn = "\n".join([x.strip() for x in reranked_docs])
         print(f"after rerank, rtn={rtn}")

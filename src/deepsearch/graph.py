@@ -40,6 +40,12 @@ MAX_SOURCES_PER_SEARCH = int(os.getenv("MAX_SOURCES_PER_SEARCH", "2"))
 
 # Constants
 REGEX_PATTERN = r"Plan:\s*(.+)\s*(#E\d+)\s*=\s*(\w+)\s*\[([^\]]+)\]"
+EVIDENCE_PATTERN = r"#E\d+"
+
+# Printed by the REPL only if the generated code ran to completion. PythonREPL
+# reports failures as an ordinary return value, so this is how we tell a crash
+# apart from real output.
+REPL_SUCCESS_SENTINEL = "__OPENPROBE_REPL_OK__"
 
 
 class ReWOOState(TypedDict):
@@ -157,22 +163,67 @@ def extract_last_python_block(input_str: str) -> Optional[str]:
     return py_blocks[-1].strip()
 
 
-def python_repl_tool(code: str) -> Optional[str]:
+def python_repl_tool(code: Optional[str]) -> Optional[str]:
     """
     Execute Python code in a REPL environment.
-    
+
     Args:
         code: Python code to execute
-        
+
     Returns:
-        Output of the code execution or None if execution failed
+        Output of the code execution, or None if execution failed or the code
+        produced no output to use as evidence
     """
+    if not code or not code.strip():
+        print("Failed to execute. Error: no Python code was generated")
+        return None
+
+    # PythonREPL returns the traceback as its output instead of raising, and
+    # returns "" for code that computes without printing. Both look like
+    # success to a bare `is None` check, so append a sentinel print that only
+    # runs if the generated code completed.
+    instrumented = f"{code}\nprint({REPL_SUCCESS_SENTINEL!r})"
     try:
-        result = PY_REPL.run(code)
-        return result
+        output = PY_REPL.run(instrumented)
     except BaseException as e:
         print(f"Failed to execute. Error: {repr(e)}")
         return None
+
+    if output is None or REPL_SUCCESS_SENTINEL not in output:
+        print(f"Failed to execute. Error: {output!r}")
+        return None
+
+    result = output.replace(REPL_SUCCESS_SENTINEL, "").strip()
+    if not result:
+        print("Failed to execute. Error: code ran but printed no result")
+        return None
+    return result
+
+
+def substitute_evidence(text: str, results: Dict[str, str]) -> str:
+    """
+    Replace #E variable references in text with their resolved values.
+
+    Substituting each key in turn would let #E1 overwrite the prefix of #E10,
+    so references are matched as whole tokens in a single pass. Unresolved
+    references are left untouched.
+
+    Args:
+        text: Text that may contain #E references
+        results: Mapping of step name (e.g. "#E1") to its result
+
+    Returns:
+        Text with every known #E reference replaced
+    """
+    if not text:
+        return text
+
+    def _replace(match: re.Match) -> str:
+        key = match.group(0)
+        value = results.get(key)
+        return key if value is None else str(value)
+
+    return re.sub(EVIDENCE_PATTERN, _replace, text)
 
 
 def reword_tool_input(tool_input: str) -> str:
@@ -239,9 +290,8 @@ def master(state: ReWOOState) -> Command[Literal["plan", "search", "code", "solv
 
     print("\n======RESULT DICTIONARY=======\n", result_dict)
 
-    # Replace all occurrences of that k in the current tool_input string with v
-    for k, v in result_dict.items():
-        tool_input = tool_input.replace(k, v)
+    # Resolve any #E references in the current tool_input to their results
+    tool_input = substitute_evidence(tool_input, result_dict)
 
     # Route to appropriate tool
     if tool == "Search":
@@ -521,9 +571,8 @@ def solve(state: ReWOOState) -> Command[Literal["master"]]:
     plan = ""
     for step_plan, step_name, tool, tool_input in state["steps"]:
         result_dict = state["results"]
-        for k, v in result_dict.items():
-            tool_input = tool_input.replace(k, v)
-            step_name = step_name.replace(k, v)
+        tool_input = substitute_evidence(tool_input, result_dict)
+        step_name = substitute_evidence(step_name, result_dict)
         plan += f"Plan: {step_plan}\n{step_name} = {tool}[{tool_input}]"
     
     # Generate final solution
