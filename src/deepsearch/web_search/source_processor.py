@@ -4,12 +4,13 @@ https://github.com/sentient-agi/OpenDeepSearch/blob/main/src/opendeepsearch/cont
 
 """
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .chunker import Chunker
 from .crawl4ai_scraper import WebScraper
 from .jina_reranker import JinaReranker
 from .local_reranker import LocalReranker
+from .serp_search import SearchResult
 
 @dataclass
 class Source:
@@ -47,33 +48,40 @@ class SourceProcessor:
         #     print("Using Infinity Reranker")
 
     async def process_sources(
-        self, 
-        sources: List[dict], 
-        num_elements: int, 
-        query: str, 
+        self,
+        sources: SearchResult,
+        num_elements: int,
+        query: str,
         pro_mode: bool = False
-    ) -> List[dict]:
+    ) -> Dict[str, Any]:
+        """Scrape and rerank the top search results.
+
+        Always returns the search-result payload (``sources.data``) so callers
+        can rely on a single shape, including when processing fails part-way.
+        """
+        sources_data = getattr(sources, "data", None) or {}
         try:
-            valid_sources = self._get_valid_sources(sources, num_elements)
+            valid_sources = self._get_valid_sources(sources_data, num_elements)
             if not valid_sources:
-                return sources
+                return sources_data
 
             if not pro_mode:
                 # Check if there's a Wikipedia article among valid sources
-                wiki_sources = [(i, source) for i, source in valid_sources 
+                wiki_sources = [(i, source) for i, source in valid_sources
                               if 'wikipedia.org' in source['link']]
                 if not wiki_sources:
-                    return sources.data
+                    return sources_data
                 # If Wikipedia article exists, only process that
                 valid_sources = wiki_sources[:1]  # Take only the first Wikipedia source
             html_contents = await self._fetch_html_contents([s[1]['link'] for s in valid_sources])
-            return self._update_sources_with_content(sources.data, valid_sources, html_contents, query)
+            return self._update_sources_with_content(sources_data, valid_sources, html_contents, query)
         except Exception as e:
             print(f"Error in process_sources: {e}")
-            return sources
+            return sources_data
 
-    def _get_valid_sources(self, sources: List[dict], num_elements: int) -> List[Tuple[int, dict]]:
-        return [(i, source) for i, source in enumerate(sources.data['organic'][:num_elements]) if source]
+    def _get_valid_sources(self, sources_data: Dict[str, Any], num_elements: int) -> List[Tuple[int, dict]]:
+        organic = sources_data.get('organic') or []
+        return [(i, source) for i, source in enumerate(organic[:num_elements]) if source]
 
     async def _fetch_html_contents(self, links: List[str]) -> List[str]:
         raw_contents = await self.scraper.scrape_many(links)
@@ -132,13 +140,14 @@ class SourceProcessor:
             return ""
 
     def _update_sources_with_content(
-        self, 
-        sources: List[dict],
-        valid_sources: List[Tuple[int, dict]], 
+        self,
+        sources_data: Dict[str, Any],
+        valid_sources: List[Tuple[int, dict]],
         html_contents: List[str],
         query: str
-    ) -> List[dict]:
+    ) -> Dict[str, Any]:
+        # The dicts in valid_sources are the same objects held by
+        # sources_data['organic'], so updating them in place is enough.
         for (i, source), html in zip(valid_sources, html_contents):
             source['html'] = self._process_html_content(html, query)
-            # sources[i] = source
-        return sources
+        return sources_data
