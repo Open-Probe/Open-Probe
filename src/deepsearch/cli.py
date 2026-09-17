@@ -107,7 +107,7 @@ def run_async_with_cleanup(coro):
 
 def check_environment():
     """Check if required environment variables are set."""
-    required_vars = ["GOOGLE_API_KEY", "WEB_SEARCH_API_KEY"]
+    required_vars = ["SONIC_JWT", "WEB_SEARCH_API_KEY"]
     missing_vars = [var for var in required_vars if os.getenv(var) is None]
     
     if missing_vars:

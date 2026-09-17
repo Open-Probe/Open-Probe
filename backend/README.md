@@ -23,8 +23,7 @@ FastAPI backend service for the **OpenProbe AI system**, specifically designed t
    ```bash
    # Copy your existing .env from the project root or set these
    WEB_SEARCH_API_KEY=your_key_here
-   GOOGLE_API_KEY=your_key_here
-   LAMBDA_API_KEY=your_key_here
+   SONIC_JWT=your_token_here
    ```
 
 3. **Run the server**:

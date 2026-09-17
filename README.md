@@ -70,8 +70,11 @@ The system uses LangGraph to orchestrate the search process:
 
     Create a `.env` file in the project root with your API keys:
     ```env
-    # Google Gemini API key (default provider)
-    GOOGLE_API_KEY=your_api_key
+    # Sonic credential — either a Personal Access Token from the Sonic
+    # Self-Service Auth Manager or an 
+    # Entra OAuth/JWT access token. The PAT is for testing only; production
+    # traffic requires the JWT.
+    SONIC_JWT=your_token
 
     # Serper.dev API key for web search
     WEB_SEARCH_API_KEY=your_api_key
@@ -79,8 +82,10 @@ The system uses LangGraph to orchestrate the search process:
     # Jina API key for reranking
     JINA_API_KEY=your_api_key
 
-    # Optional: Use Lambda/OpenAI-compatible models
-    LAMBDA_API_KEY=your_api_key
+    # Optional: override the Sonic models (defaults shown)
+    SONIC_PLAN_MODEL=claude-opus-5
+    SONIC_COMMON_MODEL=claude-sonnet-5
+    SONIC_CODE_MODEL=claude-sonnet-5
     ```
 
 ## 🚀 Running OpenProbe
