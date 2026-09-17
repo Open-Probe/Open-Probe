@@ -11,6 +11,11 @@ from evals.grader_prompts import GRADER_TEMPLATE
 from multiprocessing import Pool, cpu_count
 from tqdm import tqdm
 
+# Optional import for Sonic via LangChain's OpenAI-compatible wrapper
+try:
+    from langchain_openai import ChatOpenAI
+except Exception:  # pragma: no cover
+    ChatOpenAI = None
 # Optional import for Gemini via LangChain provider wrapper
 try:
     from langchain_google_genai import ChatGoogleGenerativeAI
@@ -20,6 +25,13 @@ try:
     from langchain_core.messages import HumanMessage
 except Exception:  # pragma: no cover
     HumanMessage = None
+# Sonic sits behind a private internal CA that certifi does not carry, so the
+# grader needs the same trust anchors as the agent. `deepsearch.sonic_tls` is a
+# leaf module -- importing it does not pull in graph.py, torch, or fasttext.
+try:
+    from deepsearch.sonic_tls import sonic_http_clients
+except Exception:  # pragma: no cover
+    sonic_http_clients = lambda: {}
 
 def setup_logging(log_level=logging.INFO):
     """Setup logging configuration with timestamp and formatting"""
@@ -119,10 +131,43 @@ def grade_row(provider, row_data):
             output = response.choices[0].message.content.strip()
             logger.info(f"Row {idx}: Mistral grading completed successfully")
             
+        elif provider=="sonic":
+            logger.info(f"Row {idx}: Using Sonic provider")
+            if ChatOpenAI is None:
+                raise ImportError("langchain-openai is not installed. Please install requirements.txt")
+            sonic_jwt = os.environ.get("SONIC_JWT")
+            if not sonic_jwt:
+                raise ValueError("SONIC_JWT is not set in environment")
+
+            base_url = os.environ.get("SONIC_BASE_URL")
+            model_id = os.environ.get("SONIC_GRADER_MODEL", "claude-sonnet-5")
+            logger.debug(f"Row {idx}: Using Sonic model: {model_id}")
+
+            # The credential goes only in `api_key` (sent as `Authorization:
+            # Bearer`), which accepts a PAT or an Entra JWT. Setting an `api-key`
+            # header instead would force Sonic's PAT-only lookup and 401 a JWT.
+            grader = ChatOpenAI(
+                model=model_id,
+                temperature=0.0,
+                api_key=sonic_jwt,
+                base_url=base_url,
+                **sonic_http_clients(),
+            )
+
+            logger.debug(f"Row {idx}: Making request to Sonic API")
+            resp = grader.invoke(input_prompt)
+            output = getattr(resp, "content", str(resp)).strip()
+            logger.info(f"Row {idx}: Sonic grading completed successfully")
+
         elif provider=="gemini":
             logger.info(f"Row {idx}: Using Gemini provider")
             if ChatGoogleGenerativeAI is None:
-                raise ImportError("langchain-google-genai is not installed. Please install requirements.txt")
+                raise ImportError(
+                    "langchain-google-genai is not installed. It is no longer a "
+                    "project dependency (the agent runs on Sonic); install it "
+                    "explicitly with `pip install langchain-google-genai` to use "
+                    "this grader, or pass --provider sonic."
+                )
             google_api_key = os.environ.get("GOOGLE_API_KEY")
             if not google_api_key:
                 raise ValueError("GOOGLE_API_KEY is not set in environment")
@@ -230,7 +275,7 @@ def autograde_df(df_path, provider, num_cpus=4):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Auto-grade answers in a DataFrame')
     parser.add_argument('--df_path', type=str, help='Path to the DataFrame JSON file')
-    parser.add_argument('--provider', type=str, default='mistral', help='Name of provider')
+    parser.add_argument('--provider', type=str, default='sonic', help='Name of provider')
     parser.add_argument('--num_cpus', type=int, default=4, help='Number of CPU cores to use')
     parser.add_argument('--log-level', type=str, default='INFO', 
                        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'], 

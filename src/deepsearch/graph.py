@@ -5,6 +5,7 @@ from typing import Annotated, Sequence, TypedDict, List, Literal, Dict, Optional
 from langchain_experimental.utilities import PythonREPL
 from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage
 from langchain_core.language_models import BaseLanguageModel
+from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph, add_messages
 from langgraph.types import Command
 
@@ -25,6 +26,7 @@ from .prompt import (
     EXPLANATION_ANSWER
 ,
 )
+from .sonic_tls import sonic_http_clients, trust_source
 from .utils import extract_content, remove_think_cot
 from dotenv import load_dotenv
 
@@ -33,9 +35,11 @@ load_dotenv()
 
 # Environment variables
 WEB_SEARCH_API_KEY = os.getenv("WEB_SEARCH_API_KEY")
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-OPENAI_API_KEY = os.getenv("LAMBDA_API_KEY")
-OPENAI_API_BASE_URL = "https://api.lambda.ai/v1"
+SONIC_JWT = os.getenv("SONIC_JWT")
+SONIC_BASE_URL = os.getenv("SONIC_BASE_URL")
+SONIC_PLAN_MODEL = os.getenv("SONIC_PLAN_MODEL", "claude-opus-5")
+SONIC_COMMON_MODEL = os.getenv("SONIC_COMMON_MODEL", "claude-sonnet-5")
+SONIC_CODE_MODEL = os.getenv("SONIC_CODE_MODEL", "claude-sonnet-5")
 MAX_SOURCES_PER_SEARCH = int(os.getenv("MAX_SOURCES_PER_SEARCH", "2"))
 
 # Constants
@@ -66,66 +70,55 @@ class ReWOOState(TypedDict):
     explaination: str
 
 
-# Initialize models based on available API keys
+def _sonic_model(model_id: str, temperature: float) -> BaseLanguageModel:
+    """
+    Build a chat client against Sonic's OpenAI-compatible /chat/completions surface.
+
+    The credential goes only in the OpenAI `api_key` slot, which the SDK sends as
+    `Authorization: Bearer`. Sonic picks PAT vs Entra JWT off the *token shape*, not
+    the header, so that one slot accepts either. Do not also set an `api-key` header:
+    Sonic checks it first and treats it as a PAT-only lookup, so a JWT there 401s
+    before `Authorization` is ever read.
+
+    `sonic_http_clients()` supplies the trust anchors. Sonic sits behind a private
+    internal CA that certifi does not carry, and httpx defaults to certifi, so
+    without it every call fails as `APIConnectionError: Connection error.` with the
+    certificate error hidden underneath. See `sonic_tls`.
+    """
+    return ChatOpenAI(
+        model=model_id,
+        temperature=temperature,
+        api_key=SONIC_JWT,
+        base_url=SONIC_BASE_URL,
+        **sonic_http_clients(),
+    )
+
+
 def initialize_models() -> Dict[str, BaseLanguageModel]:
     """
-    Initialize language models based on available API keys.
-    
+    Initialize the language models used by the graph, all served by Sonic.
+
     Returns:
         Dict containing the models for different functions
     """
-    if OPENAI_API_KEY:
-        print("Using LAMBDA AI models \n")
+    if not SONIC_JWT:
+        raise ValueError(
+            "SONIC_JWT is not set. For testing, acquire a Personal Access Token "
+            "from the Sonic Self-Service Auth Manager at "
+            "/authmanager/manage-keys and set it in your environment or .env "
+            "file. Production traffic requires an Entra OAuth/JWT token; the "
+            "same variable takes either."
+        )
 
-        from langchain_openai import ChatOpenAI
-        plan_model_id = "deepseek-r1-0528"
-        common_model_id = "Qwen3-32B"
-        code_model_id = "Qwen3-32B"
-        
-        plan_model = ChatOpenAI(
-            model=plan_model_id,
-            temperature=0.2,
-            openai_api_key=OPENAI_API_KEY,
-            base_url=OPENAI_API_BASE_URL,
-        )
-        common_model = ChatOpenAI(
-            model=common_model_id,
-            temperature=0.2,
-            openai_api_key=OPENAI_API_KEY,
-            base_url=OPENAI_API_BASE_URL,
-        )
-        code_model = ChatOpenAI(
-            model=code_model_id,
-            temperature=0.2,
-            openai_api_key=OPENAI_API_KEY,
-            base_url=OPENAI_API_BASE_URL,
-        )
-    else:
-        print("Using Google Gemini models \n")
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        small_model = "gemini-2.5-flash"
-        large_model = "gemini-2.5-flash"
+    # Name the trust source up front: a TLS failure here surfaces as an opaque
+    # `APIConnectionError: Connection error.`, so this line is what tells you
+    # whether the certificate chain was ever going to validate.
+    print(f"Using Sonic API models (TLS: {trust_source()})\n")
 
-        plan_model = ChatGoogleGenerativeAI(
-            model=large_model,
-            temperature=0.3,
-            google_api_key=GOOGLE_API_KEY
-        )
-        common_model = ChatGoogleGenerativeAI(
-            model=small_model,
-            temperature=0.3,
-            google_api_key=GOOGLE_API_KEY
-        )
-        code_model = ChatGoogleGenerativeAI(
-            model=small_model,
-            temperature=0.1,
-            google_api_key=GOOGLE_API_KEY
-        )
-    
     return {
-        "plan": plan_model,
-        "common": common_model,
-        "code": code_model
+        "plan": _sonic_model(SONIC_PLAN_MODEL, 0.2),
+        "common": _sonic_model(SONIC_COMMON_MODEL, 0.2),
+        "code": _sonic_model(SONIC_CODE_MODEL, 0.1),
     }
 
 

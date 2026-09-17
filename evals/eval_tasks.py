@@ -14,7 +14,7 @@ from datasets import Dataset
 from dotenv import load_dotenv
 from tqdm import tqdm
 from deepsearch.utils import extract_content
-from deepsearch.graph import graph
+from deepsearch.graph import SONIC_PLAN_MODEL, graph
 
 load_dotenv()
 
@@ -22,12 +22,9 @@ APPEND_ANSWER_LOCK = threading.Lock()
 
 reranker_ip = os.getenv("RERANKER_SERVER_HOST_IP")
 reranker_port = os.getenv("RERANKER_SERVER_PORT")
-openai_api_key = os.getenv("LAMBDA_API_KEY")
 
-if openai_api_key:
-    model_id = "deepseek-r1-671b"
-else:
-    model_id = "gemini-2.5-pro"
+# Label only — used in the output records and the output directory/filename.
+model_id = SONIC_PLAN_MODEL
 
 if reranker_ip:
     reranker = "local"
