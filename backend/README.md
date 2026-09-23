@@ -24,7 +24,13 @@ FastAPI backend service for the **OpenProbe AI system**, specifically designed t
    # Copy your existing .env from the project root or set these
    WEB_SEARCH_API_KEY=your_key_here
    SONIC_JWT=your_token_here
+   SONIC_AUTH_MODE=pat        # only for a PAT; defaults to jwt
    ```
+
+   `SONIC_AUTH_MODE` defaults to `jwt`, so if `SONIC_JWT` holds a Personal Access
+   Token you must set it to `pat` or the graph raises at import. Note that the
+   adapter's mock-mode fallback catches only `ImportError`, so a credential
+   misconfiguration surfaces as a startup crash rather than degrading to mock mode.
 
 3. **Run the server**:
    ```bash

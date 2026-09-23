@@ -32,6 +32,13 @@ try:
     from deepsearch.sonic_tls import sonic_http_clients
 except Exception:  # pragma: no cover
     sonic_http_clients = lambda: {}
+# Same leaf-module reasoning for credential resolution. No fallback shim here: a
+# missing validator must not silently degrade into skipping validation, so this
+# stays None and the Sonic branch raises. Other providers are unaffected.
+try:
+    from deepsearch.sonic_auth import sonic_credential
+except Exception:  # pragma: no cover
+    sonic_credential = None
 
 def setup_logging(log_level=logging.INFO):
     """Setup logging configuration with timestamp and formatting"""
@@ -135,17 +142,23 @@ def grade_row(provider, row_data):
             logger.info(f"Row {idx}: Using Sonic provider")
             if ChatOpenAI is None:
                 raise ImportError("langchain-openai is not installed. Please install requirements.txt")
-            sonic_jwt = os.environ.get("SONIC_JWT")
-            if not sonic_jwt:
-                raise ValueError("SONIC_JWT is not set in environment")
+            if sonic_credential is None:
+                raise ImportError(
+                    "deepsearch.sonic_auth is not importable, so SONIC_AUTH_MODE "
+                    "cannot be validated. Install the package with `pip install -e .`"
+                )
+            # Validates SONIC_JWT against SONIC_AUTH_MODE (default 'jwt', so a PAT
+            # needs SONIC_AUTH_MODE=pat) and raises ValueError on a mismatch.
+            sonic_jwt, sonic_mode = sonic_credential()
 
             base_url = os.environ.get("SONIC_BASE_URL")
             model_id = os.environ.get("SONIC_GRADER_MODEL", "claude-sonnet-5")
-            logger.debug(f"Row {idx}: Using Sonic model: {model_id}")
+            logger.debug(f"Row {idx}: Using Sonic model: {model_id} (auth: {sonic_mode})")
 
             # The credential goes only in `api_key` (sent as `Authorization:
             # Bearer`), which accepts a PAT or an Entra JWT. Setting an `api-key`
             # header instead would force Sonic's PAT-only lookup and 401 a JWT.
+            # SONIC_AUTH_MODE declares the type; it never picks the header.
             grader = ChatOpenAI(
                 model=model_id,
                 temperature=0.0,

@@ -26,6 +26,7 @@ from .prompt import (
     EXPLANATION_ANSWER
 ,
 )
+from .sonic_auth import sonic_credential
 from .sonic_tls import sonic_http_clients, trust_source
 from .utils import extract_content, remove_think_cot
 from dotenv import load_dotenv
@@ -35,7 +36,6 @@ load_dotenv()
 
 # Environment variables
 WEB_SEARCH_API_KEY = os.getenv("WEB_SEARCH_API_KEY")
-SONIC_JWT = os.getenv("SONIC_JWT")
 SONIC_BASE_URL = os.getenv("SONIC_BASE_URL")
 SONIC_PLAN_MODEL = os.getenv("SONIC_PLAN_MODEL", "claude-opus-5")
 SONIC_COMMON_MODEL = os.getenv("SONIC_COMMON_MODEL", "claude-sonnet-5")
@@ -70,7 +70,7 @@ class ReWOOState(TypedDict):
     explaination: str
 
 
-def _sonic_model(model_id: str, temperature: float) -> BaseLanguageModel:
+def _sonic_model(model_id: str, temperature: float, credential: str) -> BaseLanguageModel:
     """
     Build a chat client against Sonic's OpenAI-compatible /chat/completions surface.
 
@@ -78,7 +78,8 @@ def _sonic_model(model_id: str, temperature: float) -> BaseLanguageModel:
     `Authorization: Bearer`. Sonic picks PAT vs Entra JWT off the *token shape*, not
     the header, so that one slot accepts either. Do not also set an `api-key` header:
     Sonic checks it first and treats it as a PAT-only lookup, so a JWT there 401s
-    before `Authorization` is ever read.
+    before `Authorization` is ever read. `SONIC_AUTH_MODE` declares which type the
+    credential is, but never which header carries it — see `sonic_auth`.
 
     `sonic_http_clients()` supplies the trust anchors. Sonic sits behind a private
     internal CA that certifi does not carry, and httpx defaults to certifi, so
@@ -88,7 +89,7 @@ def _sonic_model(model_id: str, temperature: float) -> BaseLanguageModel:
     return ChatOpenAI(
         model=model_id,
         temperature=temperature,
-        api_key=SONIC_JWT,
+        api_key=credential,
         base_url=SONIC_BASE_URL,
         **sonic_http_clients(),
     )
@@ -101,24 +102,27 @@ def initialize_models() -> Dict[str, BaseLanguageModel]:
     Returns:
         Dict containing the models for different functions
     """
-    if not SONIC_JWT:
-        raise ValueError(
-            "SONIC_JWT is not set. For testing, acquire a Personal Access Token "
-            "from the Sonic Self-Service Auth Manager at "
-            "/authmanager/manage-keys and set it in your environment or .env "
-            "file. Production traffic requires an Entra OAuth/JWT token; the "
-            "same variable takes either."
+    # Resolves SONIC_JWT against SONIC_AUTH_MODE and raises ValueError if the
+    # credential is missing or contradicts the declared mode. Doing it here means a
+    # PAT left in a production config fails at startup rather than as an opaque
+    # `401 Invalid API Key.` on the first real call.
+    credential, mode = sonic_credential()
+
+    # Name the auth mode and trust source up front: both failures surface opaquely
+    # later -- a bad credential as a bare 401, a TLS failure as
+    # `APIConnectionError: Connection error.` -- so this line is what tells you
+    # whether either was ever going to work.
+    print(f"Using Sonic API models (auth: {mode}, TLS: {trust_source()})\n")
+    if mode == "pat":
+        print(
+            "⚠️  SONIC_AUTH_MODE=pat — a PAT is a testing credential only. "
+            "Production traffic requires an Entra OAuth/JWT token.\n"
         )
 
-    # Name the trust source up front: a TLS failure here surfaces as an opaque
-    # `APIConnectionError: Connection error.`, so this line is what tells you
-    # whether the certificate chain was ever going to validate.
-    print(f"Using Sonic API models (TLS: {trust_source()})\n")
-
     return {
-        "plan": _sonic_model(SONIC_PLAN_MODEL, 0.2),
-        "common": _sonic_model(SONIC_COMMON_MODEL, 0.2),
-        "code": _sonic_model(SONIC_CODE_MODEL, 0.1),
+        "plan": _sonic_model(SONIC_PLAN_MODEL, 0.2, credential),
+        "common": _sonic_model(SONIC_COMMON_MODEL, 0.2, credential),
+        "code": _sonic_model(SONIC_CODE_MODEL, 0.1, credential),
     }
 
 

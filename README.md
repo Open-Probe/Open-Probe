@@ -76,6 +76,11 @@ The system uses LangGraph to orchestrate the search process:
     # traffic requires the JWT.
     SONIC_JWT=your_token
 
+    # Which credential type SONIC_JWT holds: jwt (default) or pat.
+    # Required when using a PAT — the default assumes production intent,
+    # and a mismatch fails at startup rather than as an opaque 401.
+    SONIC_AUTH_MODE=pat
+
     # Serper.dev API key for web search
     WEB_SEARCH_API_KEY=your_api_key
 
